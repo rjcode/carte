@@ -1,0 +1,236 @@
+h1. Carte
+
+Carte is ORM for Clojure, without the O. It's more of an MRM or IMRM but we don't need to get into that right now.
+
+The basic idea is that you tell carte about the structure of the database that you are dealing with. When a query is executed, carte will figure out a query plan, execute it and then compile the results into a list of nested maps. Carte also provides functions to make it easier to manipulate nested data structures. Finally, carte can save entire data structures, or even lists of data structures, in one step, automatically figuring out which records need to be saved, updated and deleted.
+
+The goal is to provide seamless interaction between the world of relational databases and Clojure's world of persistent data structures.
+
+The project is currently being developed against MySQL but the plan is to make it database independent. I plan to implement support for MySQL, Derby and ProsgreSQL. Once this is done, it should be easy for others to add support for other back ends.
+
+Every disclaimer goes here...
+
+h2. Examples
+
+Setup MySQL.
+
+<pre>
+<code>
+$ mysql -u root -p 
+$ CREATE DATABASE carte_test_db;
+$ GRANT ALL PRIVILEGES ON carte_test_db.* TO carte_db_user@localhost IDENTIFIED BY '123456789';
+$ exit
+</code>
+</pre>
+
+From the project root:
+
+<pre>
+<code>
+lein test
+</code>
+</pre>
+
+This will run a bunch of unit tests and will create some tables in our test database. Now open up a REPL.
+
+<pre>
+<code>
+user> (use 'carte.core)
+user> (use 'carte.test-core)
+user> (default-test-data) 
+</code>
+</pre>
+
+The <code>carte.test-core</code> namespace set up our database connection, data model and created some helper functions for us. <code>default-test-data</code> loaded some data that we may experiment with. Back in the REPL:
+
+<pre>
+<code>
+user> ($ :album)
+({:title "Magic Potion", :id 4} 
+ {:title "Thickfreakness", :id 5} 
+ {:title "Let's Dance", :id 6})
+user> ($ :artist)
+({:name "The Black Keys", :id 3} 
+ {:name "David Bowie", :id 4})
+user> (meta (first *1))
+{:carte.core/type :artist, 
+ :carte.core/original {:name "The Black Keys", :id 3}}
+user> ($ :album {:title "Mag*"})
+({:title "Magic Potion", :id 4})
+user> ($ :album {:title "Mag*" :id 4} {:title "Let's Dance"})
+({:title "Magic Potion", :id 4} 
+ {:title "Let's Dance", :id 6})
+user> ($ :album :with :artists)
+({:artists [{:name "The Black Keys", :id 3}], :title "Magic Potion", :id 4} 
+ {:artists [], :title "Thickfreakness", :id 5} 
+ {:artists [], :title "Let's Dance", :id 6})
+user> ($ :artist :with :albums)
+({:albums [{:title "Magic Potion", :id 4}], :name "The Black Keys", :id 3} 
+ {:albums [], :name "David Bowie", :id 4})
+</code>
+</pre>
+
+Note that metadata is used to store the table that the data came from as well as the original value of each record. This is used to determine if a record is dirty and needs to be updated.
+
+Let's take a look at the queries that were used to retrieve this data.
+
+<pre>
+<code>
+user> (binding [*debug* true] ($ :album {:title "Mag*"}))
+[SELECT album.id as album_id, album.title as album_title FROM album WHERE album.title like ? Mag%]
+({:title "Magic Potion", :id 4})
+user> (binding [*debug* true] ($ :album {:title "Mag*" :id 4} {:title "Let's Dance"}))
+[SELECT album.id as album_id, album.title as album_title FROM album WHERE (album.title like ? AND album.id = ?) OR (album.title = ?) Mag% 4 Let's Dance]
+({:title "Magic Potion", :id 4} 
+ {:title "Let's Dance", :id 6})
+user> (binding [*debug* true] ($ :album :with :artists))
+[SELECT album.id as album_id, album.title as album_title, artist.id as artist_id, artist.name as artist_name FROM album LEFT JOIN album_artist ON album.id = album_artist.album_id LEFT JOIN artist ON album_artist.artist_id = artist.id]
+({:artists [{:name "The Black Keys", :id 3}], :title "Magic Potion", :id 4} 
+ {:artists [], :title "Thickfreakness", :id 5} {:artists [], :title "Let's Dance", :id 6})
+</code>
+</pre>
+
+You may have noticed that some of the associations above were missing. Let's fix that.
+
+<pre>
+<code>
+user> (! (conj-in ($1 :album {:title "Thickfreakness"} :with :artists)
+                  [:artists]
+                  ($1 :artist {:name "The Black Keys"})))
+5
+user> ($ :album :with :artists)
+({:artists [{:name "The Black Keys", :id 3}], :title "Magic Potion", :id 4} 
+ {:artists [{:name "The Black Keys", :id 3}], :title "Thickfreakness", :id 5} 
+ {:artists [], :title "Let's Dance", :id 6}) 
+</code>
+</pre>
+
+Let's do that again with debugging on.
+
+<pre>
+<code>
+user> (binding [*debug* true] 
+        (! (conj-in ($1 :album {:title "Let's Dance"} :with :artists)
+                    [:artists]
+                    ($1 :artist {:name "David Bowie"}))))
+[SELECT album.id as album_id, album.title as album_title, artist.id as artist_id, artist.name as artist_name FROM album LEFT JOIN album_artist ON album.id = album_artist.album_id LEFT JOIN artist ON album_artist.artist_id = artist.id WHERE album.title = ? Let's Dance]
+[SELECT artist.id as artist_id, artist.name as artist_name FROM artist WHERE artist.name = ? David Bowie] 
+updating record in :album: {:title "Let's Dance"}
+[SELECT * FROM album_artist WHERE album_artist.album_id = ? 6]
+inserting record into :album_artist: {:artist_id 4, :album_id 6}
+[SELECT * FROM album_artist WHERE album_artist.artist_id = ? AND album_artist.album_id = ? 4 6]
+6
+user> ($ :album :with :artists)
+({:artists [{:name "The Black Keys", :id 3}], :title "Magic Potion", :id 4} 
+ {:artists [{:name "The Black Keys", :id 3}], :title "Thickfreakness", :id 5} 
+ {:artists [{:name "David Bowie", :id 4}], :title "Let's Dance", :id 6})
+</code>
+</pre>
+
+Finally, we see an example of deleting something.
+
+<pre>
+<code>
+user> ($ :album :with :artists)
+({:artists [{:name "The Black Keys", :id 7}], :title "Magic Potion", :id 10} 
+ {:artists [{:name "The Black Keys", :id 7}], :title "Thickfreakness", :id 11} 
+ {:artists [{:name "David Bowie", :id 8}], :title "Let's Dance", :id 12})
+user> (first *1)
+{:artists [{:name "The Black Keys", :id 7}], :title "Magic Potion", :id 10}
+user> (remove-in r [:artists] {:name "The Black Keys"})
+{:artists (), :title "Magic Potion", :id 10}
+user> (binding [*debug* true] (! *1))
+updating record in :album: {:title "Magic Potion"}
+[SELECT * FROM album_artist WHERE album_artist.album_id = ? 10]
+deleting record from :album_artist: {:artist_id 7, :album_id 10, :id 6}
+10
+</code>
+</pre>
+
+Before you move on, clean up the database so that the unit tests will be able to run against it.
+
+<pre>
+<code>
+user> (delete-all-test-data)
+</code>
+</pre>
+
+There is a lot more that carte can do. See the unit tests for more examples.
+
+h2. How does it work?
+
+In order for this to work we need a database connection and data model definition. For our example we used the following for our connection.
+
+<pre>
+<code>
+(def db {:connection {:classname "com.mysql.jdbc.Driver"
+                      :subprotocol "mysql"
+                      :subname "//localhost/carte_test_db"
+                      :user "carte_db_user"
+                      :password "123456789"}})
+</code>
+</pre>
+
+We then created a data model using the model macro. This example only shows creating many-to-many associations but there is also currently support for one-to-many. In the future there will be support for belongs-to and one-to-one associations.
+
+<pre>
+<code>
+(def data-model
+     (model
+      (album [:id :title]
+             (many-to-many :artist))
+      (artist [:id :name]
+              (many-to-many :album => :album_artist))))
+</code>
+</pre>
+
+The above example shows the most concise way to describe this model. We can also be explicit.
+
+<pre>
+<code>
+(def data-model
+     (model
+      (album [:id :title]
+             (many-to-many artists :artist
+              => :album_artist :album_id :artist_id))
+      (artist [:id :name]
+              (many-to-many albums :album 
+               => :album_artist :artist_id :album_id))))
+</code>
+</pre>
+
+Finally, we create some helper functions.
+
+<pre>
+<code>
+(def ! (partial save-or-update db data-model))
+(def $ (partial query db data-model))
+(def $1 (partial query-1 db data-model))
+</code>
+</pre>
+
+h2. TODO
+
+There is so much more to do in seems stupid to try to create a list here.
+
+<ul>
+	<li>Improve this documentation</li>
+	<li>Create more functions to help with manipulating data within nested data structures</li>
+	<li>Add support for belongs-to and one-to-one associations</li>
+	<li>Add support Derby and PostgreSQL</li>
+	<li>Smarter Query Planning</li>
+	<li>Clean up the code and tests</li>
+	<li>Add every kind of association to the example database and fill it with more data. Improve the examples above.</li>
+	<li>More tests</li>
+</ul>
+
+h2. License
+
+Copyright (C) 2010 Brenton Ashworth
+
+Distributed under the Eclipse Public License, the same as Clojure uses. See the file COPYING.
+
+
+
+
+
