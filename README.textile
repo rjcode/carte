@@ -150,7 +150,7 @@ user> ($ :artist :with :albums)
 </code>
 </pre>
 
-Note that metadata is used to store the name of the table that each record comes from as well as the original value of each record. This is used to determine if a record is dirty and needs to be updated.
+Note that metadata is used to store the name of the table that each record comes from as well as the original value of each record. This is used to determine if a record is dirty and should be updated.
 
 Let's take a look at the queries that were used to retrieve this data.
 
