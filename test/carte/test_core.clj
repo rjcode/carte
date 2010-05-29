@@ -21,34 +21,45 @@
   (is (= (map-values #(if (nil? %) 42 %) {:name "John" :age 27 :height nil}) 
          {:name "John" :age 27 :height 42})))
 
-(deftest test-split-criteria
-  (are [a _ result] (= (split-criteria a) result)
-       {:id 1}              :=> [[:id] 1]
-       {:id 1 :name "John"} :=> [[:id :name] 1 "John"]))
-
 (deftest test-create-comparison
   (are [a b _ result] (= (create-comparison a b) result) 
-       :id 1        :=> "id = ?"
-       :name "John" :=> "name = ?"
-       :name nil    :=> "name IS NULL"
-       :name "Joh*" :=> "name like ?"))
+       :id 1        :=> ["id = ?" 1]
+       :name "John" :=> ["name = ?" "John"]
+       :name nil    :=> ["name IS NULL" nil]
+       :name "Joh*" :=> ["name like ?" "Joh*"]
+       :where ["name = ?" "John"] :=> ["name = ?" "John"])
+  (are [a b _ result] (= (create-comparison :person a b) result) 
+       :id 1        :=> ["person.id = ?" 1]
+       :name "John" :=> ["person.name = ?" "John"]
+       :name nil    :=> ["person.name IS NULL" nil]
+       :name "Joh*" :=> ["person.name like ?" "Joh*"]
+       :where ["name = ?" "John"] :=> ["person.name = ?" "John"]
+       :where ["name = ? AND age = ?" "John" 42] :=>
+       ["person.name = ? AND person.age = ?" "John" 42]))
 
 (deftest test-create-where-str
-  (are [a b _ result] (= (create-where-str a b) result)
-       [:id] [1]                   :=> "id = ?"
-       [:id :name] [1 "John"]      :=>"id = ? AND name = ?"
-       [:id :name :desc :cost]
-       [1 "John" "Something*" nil] :=>
-       "id = ? AND name = ? AND desc like ? AND cost IS NULL"))
+  (are [a _ result] (= (create-where-str a) result)
+       {:id 1}              :=> ["id = ?" 1]
+       {:id 1 :name "John"} :=> ["id = ? AND name = ?" 1 "John"]
+       {:id 1 :name "John" :desc "Something*" :cost nil} :=>
+       ["id = ? AND name = ? AND desc like ? AND cost IS NULL"
+        1 "John" "Something*" nil]))
 
 (deftest test-create-where-vec
-  (are [x y] (= (create-where-vec x) y)
-       [] nil
-       [{:name "a"}] ["name = ?" "a"]
-       [{:name "a" :age 7}] ["name = ? AND age = ?" "a" 7]
-       [{:name "a"} {:name "b"}] ["(name = ?) OR (name = ?)" "a" "b"]
-       [{:name "a" :age 7} {:name "b"}]
-       ["(name = ? AND age = ?) OR (name = ?)" "a" 7 "b"]))
+  (are [x _ y] (= (create-where-vec x) y)
+       [] :=> nil
+       [{:name "a"}] :=> ["name = ?" "a"]
+       [{:name "a" :age 7}] :=> ["name = ? AND age = ?" "a" 7]
+       [{:name "a"} {:name "b"}] :=> ["(name = ?) OR (name = ?)" "a" "b"]
+       [{:name "a" :age 7} {:name "b"}] :=>
+       ["(name = ? AND age = ?) OR (name = ?)" "a" 7 "b"]
+       [{:where ["name = ?" "a"]}] :=> ["name = ?" "a"]
+       [{:where ["name = ? AND id < ?" "a" 6]}] :=>
+       ["name = ? AND id < ?" "a" 6]
+       [{:where ["name = ? AND id < ?" "a" 6] :age 7}] :=>
+       ["name = ? AND id < ? AND age = ?" "a" 6 7]
+       [{:where ["name = ? AND id < ?" "a" 6] :age 7} {:age 10}] :=>
+       ["(name = ? AND id < ? AND age = ?) OR (age = ?)" "a" 6 7 10]))
 
 (deftest test-replace-wildcard
   (is (= (replace-wildcard "Something*") "Something%")))
@@ -486,6 +497,34 @@
           (finally (~'delete-all-test-data))))
        (println "!!WARNING!! Not running tests against mysql."))))
 
+(deftest test-find-in
+  (are [query _ expected]
+       (= (find-in query
+                   [{:id 4 
+                     :title "Magic Potion" 
+                     :artists [{:id 3 :name "The Black Keys"}]} 
+                    {:id 5 
+                     :title "Thickfreakness"
+                     :artists [{:id 3 :name "The Black Keys"}]} 
+                    {:id 6 
+                     :title "Let's Dance" 
+                     :artists [{:id 4 :name "David Bowie"}]}])
+          expected)
+       [:title] :=> ["Magic Potion" "Thickfreakness" "Let's Dance"
+                                          ]
+       [{:title "Magic Potion"}] :=> [{:id 4 
+                                       :title "Magic Potion" 
+                                       :artists
+                                       [{:id 3 :name "The Black Keys"}]}]
+       
+       [{:title "Magic Potion"} :id] :=> [4]
+       
+       [{:title "Let's Dance"} :artists] :=> [{:id 4 :name "David Bowie"}]
+
+       [{:title "Let's Dance"} :artists :name] :=> ["David Bowie"]
+
+       [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]))
+
 (deftest test-query
   (binding [*debug* false]
     (with-test-database default-test-data
@@ -524,18 +563,25 @@
            ($ :album {:title "Mag*"} {:title "Th*"})
            #(set (map :title %))
            #{"Magic Potion" "Thickfreakness"}
-           
-           ;; TODO - Simplify selecting items like this
+
+           ($ :album {:where ["title like ? or title like ?" "Mag%" "Th%"]})
+           #(set (map :title %))
+           #{"Magic Potion" "Thickfreakness"}
+
            ($ :album :with :artists)
-           #(:name (first (:artists (first (filter (fn [x] (= (:title x) "Magic Potion")) %)))))
+           #(find-first-in [{:title "Magic Potion"} :artists :name] %)
            "The Black Keys"
 
            ($1 :album {:title "Magic Potion"} :with :artists)
            #(:name (first (:artists %)))
            "The Black Keys"
 
+           ($1 :album {:where ["title = ?" "Magic Potion"]} :with :artists)
+           #(:name (first (:artists %)))
+           "The Black Keys"
+
            ($ :artist :with :albums)
-           #(:title (first (:albums (first (filter (fn [x] (= (:name x) "The Black Keys")) %)))))
+           #(find-first-in [{:name "The Black Keys"} :albums :title] %)
            "Magic Potion"
 
            )
@@ -544,13 +590,5 @@
        (is (= (:title result) "Magic Potion"))
        (is (= (-> result meta type-key) :album))))))
 
-(comment
-  
-  ;; Think about making a way to allow this to work. It will need to
-  ;; get the columns from the database.
-  (def data-model
-       (model
-        (album [many-to-many :artist])
-        (artist)))
-  )
+
 

@@ -10,9 +10,9 @@ The project is currently being developed against MySQL but the plan is to make i
 
 Every disclaimer goes here...
 
-h2. Getting Started
+h2. Setting up MySQL and Cloning Carte
 
-If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using leiningen. 
+If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using Leiningen. 
 
 First you will need to create the test database.
 
@@ -25,7 +25,7 @@ $ exit
 </code>
 </pre>
 
-Clone this repo and run the tests.
+Next, clone this repository and run the tests.
 
 <pre>
 <code>
@@ -35,7 +35,63 @@ $ lein test
 </code>
 </pre>
 
-This will run a bunch of unit tests and will create some tables in the test database which we created in the previous step. Start up a REPL and execute the following expressions.
+This will run a bunch of unit tests and will create some tables in the test database which we created in the previous step.
+
+h2. Configuring Carte
+
+Two things are required in order for carte to work, a database configuration and a data model definition. Below is the configuration for connecting to the test database that was created above. 
+
+<pre>
+<code>
+(def db {:connection {:classname "com.mysql.jdbc.Driver"
+                      :subprotocol "mysql"
+                      :subname "//localhost/carte_test_db"
+                      :user "carte_db_user"
+                      :password "123456789"}})
+</code>
+</pre>
+
+A data model is created using the <code>model</code> macro. Below we create a simple data model for the test database. This example only shows creating many-to-many associations but there is also currently support for one-to-many. In the future there will be support for belongs-to and one-to-one.
+
+<pre>
+<code>
+(def data-model
+     (model
+      (album [:id :title]
+             (many-to-many :artist))
+      (artist [:id :name]
+              (many-to-many :album => :album_artist))))
+</code>
+</pre>
+
+The above example shows the most concise way to describe this model. Below is an example of being explicit.
+
+<pre>
+<code>
+(def data-model
+     (model
+      (album [:id :title]
+             (many-to-many artists :artist
+              => :album_artist :album_id :artist_id))
+      (artist [:id :name]
+              (many-to-many albums :album 
+               => :album_artist :artist_id :album_id))))
+</code>
+</pre>
+
+Finally, create some helper functions which close over the database configuration and data model.
+
+<pre>
+<code>
+(def ! (partial save-or-update db data-model))
+(def $ (partial query db data-model))
+(def $1 (partial query-1 db data-model))
+</code>
+</pre>
+
+h2. Example Queries
+
+If you would like to follow along with these examples then you may start up a REPL and execute the following expressions. The <code>carte.test-core</code> namespace will set up our database configuration, create a data model and create the helper functions described above. <code>default-test-data</code> will load sample data that we may experiment with. 
 
 <pre>
 <code>
@@ -45,7 +101,7 @@ user> (default-test-data)
 </code>
 </pre>
 
-The <code>carte.test-core</code> namespace set up our database connection, created a data model and created some helper functions for us. <code>default-test-data</code> loaded sample data that we may experiment with. We are now ready to run some queries.
+We are now ready to run some queries.
 
 <pre>
 <code>
@@ -66,6 +122,10 @@ user> ($ :album {:title "Mag*"})
 ({:id 4 :title "Magic Potion"})
 
 user> ($ :album {:title "Mag*" :id 4} {:title "Let's Dance"})
+({:id 4 :title "Magic Potion"} 
+ {:id 6 :title "Let's Dance"})
+
+user> ($ :album {:where ["title &lt;= ?" "Magic Potion"]})
 ({:id 4 :title "Magic Potion"} 
  {:id 6 :title "Let's Dance"})
 
@@ -98,22 +158,20 @@ Let's take a look at the queries that were used to retrieve this data.
 <code>
 user> (binding [*debug* true] 
         ($ :album {:title "Mag*"}))
-["SELECT album.id as album_id, album.title as album_title 
-   FROM album WHERE album.title like ?" "Mag%"]
+["SELECT album.id as album_id, album.title as album_title FROM album WHERE album.title like ?" "Mag%"]
 ({:id 4 :title "Magic Potion"})
 
 user> (binding [*debug* true] 
         ($ :album {:title "Mag*" :id 4} {:title "Let's Dance"}))
 ["SELECT album.id as album_id, album.title as album_title 
    FROM album 
-   WHERE (album.title like ? AND album.id = ?) 
-   OR (album.title = ?)" "Mag%" 4 "Let's Dance"]
+   WHERE (album.title like ? AND album.id = ?) OR (album.title = ?)" "Mag%" 4 "Let's Dance"]
 ({:id 4 :title "Magic Potion"} 
  {:id 6 :title "Let's Dance"})
 
-user> (binding [*debug* true] ($ :album :with :artists))
-["SELECT album.id as album_id, album.title as album_title, 
-  artist.id as artist_id, artist.name as artist_name 
+user> (binding [*debug* true] 
+        ($ :album :with :artists))
+["SELECT album.id as album_id, album.title as album_title, artist.id as artist_id, artist.name as artist_name 
    FROM album 
    LEFT JOIN album_artist ON album.id = album_artist.album_id 
    LEFT JOIN artist ON album_artist.artist_id = artist.id"]
@@ -159,19 +217,16 @@ user> (binding [*debug* true]
         (! (conj-in ($1 :album {:title "Let's Dance"} :with :artists)
                     [:artists]
                     ($1 :artist {:name "David Bowie"}))))
-["SELECT album.id as album_id, album.title as album_title, 
-  artist.id as artist_id, artist.name as artist_name 
+["SELECT album.id as album_id, album.title as album_title, artist.id as artist_id, artist.name as artist_name 
    FROM album 
    LEFT JOIN album_artist ON album.id = album_artist.album_id 
    LEFT JOIN artist ON album_artist.artist_id = artist.id 
    WHERE album.title = ?" "Let's Dance"]
-["SELECT artist.id as artist_id, artist.name as artist_name 
-   FROM artist WHERE artist.name = ?" "David Bowie"] 
+["SELECT artist.id as artist_id, artist.name as artist_name FROM artist WHERE artist.name = ?" "David Bowie"] 
 updating record in :album: {:title "Let's Dance"}
 ["SELECT * FROM album_artist WHERE album_artist.album_id = ?" 6]
 inserting record into :album_artist: {:artist_id 4, :album_id 6}
-["SELECT * FROM album_artist 
-   WHERE album_artist.artist_id = ? AND album_artist.album_id = ?" 4 6]
+["SELECT * FROM album_artist WHERE album_artist.artist_id = ? AND album_artist.album_id = ?" 4 6]
 6
 
 user> ($ :album :with :artists)
@@ -210,7 +265,8 @@ user> (first *1)
 user> (remove-in *1 [:artists] {:name "The Black Keys"})
 {:id 4 :title "Magic Potion" :artists ()}
 
-user> (binding [*debug* true] (! *1))
+user> (binding [*debug* true] 
+        (! *1))
 updating record in :album: {:title "Magic Potion"}
 ["SELECT * FROM album_artist WHERE album_artist.album_id = ?" 10]
 deleting record from :album_artist: {:artist_id 7, :album_id 10, :id 6}
@@ -228,73 +284,20 @@ user> (delete-all-test-data)
 
 There is a lot more that carte can do. See the unit tests for more examples.
 
-h2. How does it work?
-
-In order for this to work, we need a database connection and a data model definition. We skipped this part in the example above. It was set up for us in the <code>carte.test-core</code> namespace. Here we see the connection that was used above.
-
-<pre>
-<code>
-(def db {:connection {:classname "com.mysql.jdbc.Driver"
-                      :subprotocol "mysql"
-                      :subname "//localhost/carte_test_db"
-                      :user "carte_db_user"
-                      :password "123456789"}})
-</code>
-</pre>
-
-Next, create a data model using the <code>model</code> macro. This example only shows creating many-to-many associations but there is also currently support for one-to-many. In the future there will be support for belongs-to and one-to-one associations.
-
-<pre>
-<code>
-(def data-model
-     (model
-      (album [:id :title]
-             (many-to-many :artist))
-      (artist [:id :name]
-              (many-to-many :album => :album_artist))))
-</code>
-</pre>
-
-The above example shows the most concise way to describe this model. Below is an example of being explicit.
-
-<pre>
-<code>
-(def data-model
-     (model
-      (album [:id :title]
-             (many-to-many artists :artist
-              => :album_artist :album_id :artist_id))
-      (artist [:id :name]
-              (many-to-many albums :album 
-               => :album_artist :artist_id :album_id))))
-</code>
-</pre>
-
-Finally, create some helper functions which close over the database configuration and data model.
-
-<pre>
-<code>
-(def ! (partial save-or-update db data-model))
-(def $ (partial query db data-model))
-(def $1 (partial query-1 db data-model))
-</code>
-</pre>
-
 h2. TODO
 
-There is so much more to do in seems stupid to try to create a list here.
-
-<ul>
-	<li>Figure out how to best support arbitrary SQL with &lt;, &gt;, &lt;=, etc.</li>
-	<li>Improve this documentation</li>
-	<li>Create more functions to help with manipulating data within nested data structures</li>
+<ol>
+	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass a data model in order for this to work.</li>
+	<li>Add every kind of association to the example database and fill it with more data</li>
 	<li>Add support for belongs-to and one-to-one associations</li>
-	<li>Add support Derby and PostgreSQL</li>
-	<li>Smarter Query Planning</li>
+	<li>Create more functions to help with manipulating data within nested data structures</li>
 	<li>Clean up the code and tests</li>
-	<li>Add every kind of association to the example database and fill it with more data. Improve the examples above.</li>
-	<li>More tests</li>
-</ul>
+	<li>Improve this documentation</li>
+	<li>Demonstrate query with multiple associations</li>
+	<li>Add support Derby and PostgreSQL</li>
+	<li>Smarter Query Planning - currently there are some unnecessary queries being performed</li>	
+	
+</ol>
 
 h2. License
 

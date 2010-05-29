@@ -7,10 +7,9 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns carte.core
-  "map-relational-mapping for Clojure."
   (:use (clojure.contrib [sql :as sql]
 	                 [java-utils :only (as-str)]
-	                 [str-utils :only (re-gsub)]
+	                 [str-utils :only (re-gsub re-split)]
                          [map-utils :only (deep-merge-with)])
         [inflections :only (pluralize)]))
 
@@ -112,8 +111,6 @@
   (let [new-body (map #(apply list 'relation %) body)]
     `(model* ~@new-body)))
 
-;; End define relationships
-
 (defn map-values [f m]
   (let [keys (keys m)
 	values (vals m)]
@@ -126,33 +123,54 @@
     (sql/transaction (f)))
   nil)
 
-(defn split-criteria
-  "Create a sequence where the first element is the vector of keys and the
-   remaining elements are the values"
-  [criteria]
-  (cons (vec (keys criteria)) (vals criteria)))
+(defn- create-column-name-pattern-from-sql [s]
+  (let [re #"\W|and|is|not|null|or|like|\d"]
+    (re-pattern
+     (apply str
+            (interpose "|"
+                       (distinct
+                        (filter #(not (empty? %))
+                                (re-split re
+                                          (.toLowerCase s)))))))))
+
+(defn qualify-where-string [prefix s]
+  (let [p (create-column-name-pattern-from-sql s)]
+    (re-gsub p #(str prefix "." %) s)))
 
 (defn create-comparison
   ([key value]
      (create-comparison nil key value))
   ([prefix key value]
-     (str (if prefix
-            (str (name prefix) "."))
-          (name key)
-          (if (nil? value)
-            " IS NULL"
-            (if (. (as-str value) endsWith "*")
-              " like ?"
-              " = ?")))))
+     (if (= key :where)
+       (if prefix
+           (concat [(qualify-where-string (name prefix) (first value))]
+                   (rest value))
+           value)
+       [(str (if prefix
+               (str (name prefix) "."))
+             (name key)
+             (if (nil? value)
+               " IS NULL"
+               (if (. (as-str value) endsWith "*")
+                 " like ?"
+                 " = ?")))
+        value])))
 
 (defn create-where-str
   "Create a where string out of the keys from a criteria map"
-  ([keys values]
-     (create-where-str nil keys values))
-  ([prefix keys values]
-     (apply str (interpose
-                 " AND "
-                 (map (partial create-comparison prefix) keys values)))))
+  ([m]
+     (create-where-str nil m))
+  ([prefix m]
+     (let [result (reduce (fn [a b]
+                            (let [c (create-comparison prefix (key b) (val b))]
+                              [(conj (first a) (first c))
+                               (concat (last a) (rest c))]))
+                          [[] []]
+                          m)]
+       (concat
+        [(apply str (interpose
+                     " AND "
+                     (first result)))] (last result)))))
 
 (defn replace-wildcard [s]
   (if (. (as-str s) endsWith "*")
@@ -169,9 +187,8 @@
             values []
             criteria criteria]
        (if-let [next (first criteria)]
-         (if-let [[qs & v] (split-criteria next)]
-           (recur (conj query-strings
-                        (create-where-str relation qs v))
+         (if-let [[qs & v] (create-where-str relation next)]
+           (recur (conj query-strings qs)
                   (concat values v)
                   (rest criteria))
            (recur query-strings values (rest criteria)))
@@ -215,7 +232,7 @@
    (filter #(= (:alias %) alias)
            (-> model base-relation :joins))))
 
-;; TODO You are forcing the :id to be one of the attributes because
+;; TODO - You are forcing the :id to be one of the attributes because
 ;; you need it later when organizing records. You also need the id
 ;; when you go to save or delete a record. One way to get around this
 ;; is to always put the id in the metadata and use that for sorting
@@ -256,13 +273,9 @@
 (defn one-to-many? [join]
   (= (:type join) :one-to-many))
 
-;; TODO use map and destructuring
 (defn create-many-to-many-join [base-rel result join]
   (let [{rel :relation link :link from :from to :to} join]
-    (let [rel (name rel)
-          link (name link)
-          from (name from)
-          to (name to)]
+    (let [[rel link from to] (map name [rel link from to])]
       (str result
            " LEFT JOIN " link " ON " (name base-rel) ".id = " link "." from
            " LEFT JOIN " rel " ON " link "." to " = " rel ".id"))))
@@ -523,6 +536,9 @@
                    {}
                    coll-names))))
 
+;; TODO - You should also consider a record to be dirty if it does not
+;; have an id.
+
 (defn dirty?
   "Check the metadata to see if the value of this record has changed."
   [record]
@@ -568,8 +584,6 @@
 (defmethod save-associations :default
   [_ _ _ _ _]
   nil)
-
-
 
 (defn save-or-update-record* [db model record]
   (let [{record :base-record :as m} (dismantle-record model record)
@@ -628,6 +642,30 @@
               ks
               (filter #(not (= v (select-keys % (keys v)))) coll))))
 
+(defn find-in [ks v]
+  (loop [ks ks
+         result v]
+    (if (seq ks)
+      (recur (rest ks)
+             (let [next-test (first ks)]
+               (cond (map? next-test)
+                     (filter (fn [record]
+                               (= next-test
+                                  (select-keys record (keys next-test))))
+                             result)
+                     (keyword? next-test)
+                     (reduce (fn [a b]
+                               (let [next (next-test b)]
+                                 (if (or (vector? next) (list? next))
+                                   (concat a next)
+                                   (conj a next))))
+                             []
+                             result))))
+      result)))
+
+(defn find-first-in [ks v]
+  (first (find-in ks v)))
+
 (comment
 
   (def $ (partial query db))
@@ -653,9 +691,18 @@
   ($ :person :with :cars)
   
   ;; The above query will perform a join through the :person_car table
-  ;; and will get all people, each one have a :cars key that contains
+  ;; and will get all people, each one having a :cars key that contains
   ;; a list of associated cars.
   
   ($ :person {:id 8})
+
+  ;; multiple associations
+  ($ :person :with :cars :homes)
   
-  )
+  ;; arbitrary queries
+  ($ :person {:where ["id > ? AND name = ?" 5 "Brenton"]})
+
+  ;; this should integrate with what you already have
+  ($ :person {:where ["id > ?" 5] :name "Brenton"})
+  ($ :person {:where ["id > ?" 5] :name "Brenton"} {:name "Jim"})
+)
