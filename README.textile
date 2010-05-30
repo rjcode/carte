@@ -12,7 +12,7 @@ Every disclaimer goes here...
 
 h2. Setting up MySQL and Cloning Carte
 
-If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using Leiningen:http://github.com/technomancy/leiningen. 
+If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using "Leiningen":http://github.com/technomancy/leiningen. 
 
 First you will need to create the test database.
 
