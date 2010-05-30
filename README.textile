@@ -12,7 +12,7 @@ Every disclaimer goes here...
 
 h2. Setting up MySQL and Cloning Carte
 
-If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using Leiningen. 
+If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using Leiningen:http://github.com/technomancy/leiningen. 
 
 First you will need to create the test database.
 
@@ -29,8 +29,9 @@ Next, clone this repository and run the tests.
 
 <pre>
 <code>
-$ git clone git@github.com:brentonashworth/carte.git
+$ git clone git://github.com/brentonashworth/carte.git
 $ cd carte
+$ lein deps
 $ lein test
 </code>
 </pre>
@@ -287,6 +288,9 @@ There is a lot more that carte can do. See the unit tests for more examples.
 h2. TODO
 
 <ol>
+        <li>Make this work: ($ :album :with [:artists {:name
+        "The*"}])</li>    
+        <li>Add support for ordering, limiting and paging results</li>    
 	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass a data model in order for this to work.</li>
 	<li>Add every kind of association to the example database and fill it with more data</li>
 	<li>Add support for belongs-to and one-to-one associations</li>
@@ -294,6 +298,8 @@ h2. TODO
 	<li>Clean up the code and tests</li>
 	<li>Improve this documentation</li>
 	<li>Demonstrate query with multiple associations</li>
+	<li>Demonstrate query with where conditions on associated
+	table</li>
 	<li>Add support Derby and PostgreSQL</li>
 	<li>Smarter Query Planning - currently there are some unnecessary queries being performed</li>	
 	
