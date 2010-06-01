@@ -60,9 +60,6 @@
        {:version [{:id 7}] :page [{:name "a"}]} :=>
        ["version.id = ? AND page.name = ?" 7 "a"]))
 
-(deftest test-replace-wildcard
-  (is (= (replace-wildcard "Something*") "Something%")))
-
 (deftest test-create-attr-list
   (is (= (create-attr-list nil :page) " *"))
   (is (= (create-attr-list {} :page) " *"))

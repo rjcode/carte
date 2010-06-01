@@ -290,7 +290,7 @@ There is a lot more that carte can do. See the unit tests for more examples.
 h2. TODO
 
 <ol>
-	<li>Refactor</li>
+	<li>Refactor and document existing code before moving forward</li>
 	<li>Add every kind of association to the example database and fill it with more data</li>
 	<li>Update the docs to reflect the new data</li>
 	<li>Demonstrate query with multiple associations</li>
@@ -301,8 +301,8 @@ h2. TODO
 	<li>Create more functions to help with manipulating data within nested data structures</li>
 	<li>Clean up the code and tests</li>
 	<li>Improve this documentation</li>
-	<li>If you prefer to avoid a join and do two separate queries, provide a function that will merge the results into one data structure</li>
-	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL to abstract SQL and do this for you<li>
+	<li>There are times when a user might want to avoid a join and perform two separate queries, provide a function that will merge the results into one data structure which may be used like any other</li>
+	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL instead of raw SQL</li>
 	<li>Add support Derby and PostgreSQL</li>
 	<li>Smarter Query Planning - currently there are some unnecessary queries being performed</li>
 	<li>Think about putting the data model in the same map as the connection info in order to reduce the number of parameters that are passed around</li>

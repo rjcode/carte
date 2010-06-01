@@ -11,10 +11,19 @@
    sql."
   (:use (carte model)
         (clojure.contrib [sql :as sql]
-                         [java-utils :only (as-str)]
                          [str-utils :only (re-gsub re-split)])))
 
 (def *debug* false)
+
+(defmulti to-string type)
+
+(defmethod to-string clojure.lang.Keyword
+  [x]
+  (name x))
+
+(defmethod to-string :default
+  [x]
+  (.toString x))
 
 (defn with-transaction
   "Execute a no argument function within a transaction."
@@ -85,7 +94,10 @@
             selects)))
 
 ;; SQL Generation
-;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;
+
+(defn- interpose-str [sep coll]
+  (apply str (interpose sep coll)))
 
 (defn- create-column-name-pattern-from-sql
   "Given any sql where string, generate a pattern that will match all of the
@@ -93,12 +105,11 @@
   [s]
   (let [re #"\W|and|is|not|null|or|like|\d"]
     (re-pattern
-     (apply str
-            (interpose "|"
-                       (distinct
-                        (filter #(not (empty? %))
-                                (re-split re
-                                          (.toLowerCase s)))))))))
+     (interpose-str "|"
+                    (distinct
+                     (filter #(not (empty? %))
+                             (re-split re
+                                       (.toLowerCase s))))))))
 
 (defn- qualify-where-string
   "Given the where part of an SQL query string, qualify each column name with
@@ -110,18 +121,33 @@
 (defn- wildcard-string?
   "Does this string start with or end with wildcards."
   [s]
-  (or (. (as-str s) endsWith "*")
-      (. (as-str s) startsWith "*")))
+  (or (. (to-string s) endsWith "*")
+      (. (to-string s) startsWith "*")))
 
-(defn replace-wildcard
+(defn- replace-wildcard
   "Replace all wildcard characters with SQL % characters."
   [s]
   (cond (wildcard-string? s) (re-gsub #"[*]" "%" s)
         :else s))
 
+;; The next few functions create where-specs. A where-spec is a
+;; sequence where the first element is a parameterized query string
+;; and the remaining elements are the query parameters. For exmaple:
+;; ["name = ? AND and < ?" "John" 20].
+
+(defn- key-value->where-spec*
+  "Create where-spec when the key is not :where."
+  [prefix key value]
+  [(str (if prefix
+          (str (name prefix) "."))
+        (name key)
+        (cond (nil? value) " IS NULL"
+              (wildcard-string? value) " like ?"
+              :else " = ?"))
+   value])
+
 (defn key-value->where-spec
-  "Given a criteria key and value, create the appropriate SQL. Return a
-   vector containing the query string followed by its parameters.
+  "Given a criteria key and value, create a where-spec [string p1 p2 ... pN].
    For exmaple:
    {:name \"John\"} => [\"name = ?\" \"John\"]
    {:where [\"id > ?\" 7]} => [\"id > ?\" 7]"
@@ -133,40 +159,49 @@
            (concat [(qualify-where-string (name prefix) (first value))]
                    (rest value))
            value)
-       [(str (if prefix
-               (str (name prefix) "."))
-             (name key)
-             (cond (nil? value) " IS NULL"
-                   (wildcard-string? value) " like ?"
-                   :else " = ?"))
-        value])))
+       (key-value->where-spec* prefix key value))))
+
+(defn- criteria->queries-and-params
+  "Reduce the criteria map to a list of query string and a list of params.
+   Returns two lists."
+  [prefix m]
+  (reduce
+   (fn [a b]
+     (let [c (key-value->where-spec prefix
+                                    (key b)
+                                    (val b))]
+       [(conj (first a) (first c))
+        (concat (last a) (rest c))]))
+   [[] []]
+   m))
 
 (defn map->where-spec
-  "Given a single map with multiple keys and values, return a vector where
-   the first element is the query string and remaining elements are the query
-   parameters. Because this is operating on a single map, all of the
-   individual predicates will be interposed with AND."
+  "Given a single map with multiple keys and values, create a where-spec
+   [string p1 p2 ... pN]. The result that corresponds to each key/value
+   pair will be interposed with an AND."
   ([m]
      (map->where-spec nil m))
   ([prefix m]
-     (let [result (reduce (fn [a b]
-                            (let [c (key-value->where-spec prefix
-                                                                 (key b)
-                                                                 (val b))]
-                              [(conj (first a) (first c))
-                               (concat (last a) (rest c))]))
-                          [[] []]
-                          m)]
+     (let [result (criteria->queries-and-params prefix m)]
        (concat
-        [(apply str (interpose
-                     " AND "
-                     (first result)))] (last result)))))
+        [(interpose-str " AND " (first result))] (last result)))))
+
+(defn- or-where-spec
+  "Build a where-spec from a seq of query strings and a seq of values
+   interposed by OR. If there is more that one query string then group with
+   parens."
+  [strings values]
+  (if (seq strings)
+    (cons
+     (interpose-str " OR " (if (> (count strings) 1)
+                             (map #(str "(" % ")") strings)
+                             strings))
+     (map replace-wildcard (filter #(not (nil? %)) values)))))
 
 (defn criteria->where-spec
-  "Given a list of maps for a single table, create a vector where the first
-   element is the query string and the remaining elements are the parameters.
-   All items within a map are interposed with AND and the results of each
-   map are interposed with OR."
+  "Given a list of maps for a single table, create a where-spec
+   [string p1 p2 ... pN]. All items within a map are interposed with AND
+   and the results of each map are interposed with OR."
   ([criteria]
      (criteria->where-spec nil criteria))
   ([table criteria]
@@ -179,21 +214,33 @@
                   (concat values v)
                   (rest criteria))
            (recur query-strings values (rest criteria)))
-         (if (seq query-strings)
-           (cons
-            (apply str (interpose " OR "
-                                  (if (> (count query-strings) 1)
-                                    (map #(str "(" % ")") query-strings)
-                                    query-strings)))
-            (map replace-wildcard (filter #(not (nil? %)) values)))
-           nil)))))
+         (or-where-spec query-strings values)))))
 
 ;; TODO - This code whould be much simpler if we always qualify column
 ;; names. You wouldn't need to know about the table name here because
 ;; this information is included in the criteria-map.
 
+;; TODO - You may need to put parns around each part of the new query string.
+(defn- merge-where-specs
+  "Merge a sequence of where-specs into one. These specs are for different
+   tables in a join so they will be interposed with AND."
+  [coll]
+  (if (seq coll)
+    (reduce
+     (fn [a b]
+       (concat
+        (if (empty? a)
+          [(first b)]
+          [(apply str (interpose " AND " [(first a)
+                                          (first b)]))])
+        (rest a)
+        (rest b)))
+     []
+     coll)))
+
 (defn query->where-spec
-  "TODO"
+  "Given a parsed query with criteria for one or more tables, create a
+   where-spec [string p1 p2 ... pN]."
   [table query]
   {:pre [(or (= (count query) 1)
              (not (nil? table)))]}
@@ -206,23 +253,11 @@
           (recur (conj result
                        (criteria->where-spec (key next) (val next)))
                  (rest query)))
-        (if (seq result)
-            (reduce (fn [a b]
-                      (concat
-                       (if (empty? a)
-                         [(first b)]
-                         [(apply str (interpose " AND " [(first a)
-                                                         (first b)]))])
-                       (rest a)
-                       (rest b)))
-                    []
-                    result)
-            nil)))))
+        (merge-where-specs result)))))
 
-(defn to-string [a]
-  (cond (keyword? a) (name a)
-        :else (.toString a)))
-
+;; TODO - Get this working and test it. This is left over from a
+;; previous implementation. We don't have a params map in the current
+;; implementation.
 (defn- create-order-by [params]
   (let [sort-vec (:sort params)
         order-by-str (if (seq sort-vec)
@@ -234,12 +269,15 @@
                                  (to-string (first b)))))
                         ""
                         (interpose [","] (partition 2 sort-vec))) nil)]
-    (if order-by-str (str " order by" order-by-str) "")))
+    (if order-by-str (str " ORDER BY" order-by-str) "")))
 
-(defn create-table-qualified-names [table attrs]
+(defn create-table-qualified-names
+  "Given a table and a list of attributes, return a list of qualified names
+   with aliases."
+  [table attrs]
   (map #(let [r (name table)
               a (name %)]
-          (str r "." a " as " r "_" a))
+          (str r "." a " AS " r "_" a))
        attrs))
 
 ;; TODO - You are forcing the :id to be one of the attributes because
@@ -310,7 +348,7 @@
   [model table parsed-query]
   [(let [{:keys [attrs criteria joins]} parsed-query
          select-part (str "SELECT" (create-attr-list model table attrs joins)
-                          " FROM " (as-str table)
+                          " FROM " (to-string table)
                           (create-joins model table joins))
          where-part (query->where-spec table criteria)
          order-by-part (create-order-by {})]

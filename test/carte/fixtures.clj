@@ -8,7 +8,7 @@
 (defn attr-as [table col]
   (let [table (name table)
         col (name col)]
-    (str table "." col " as " table "_" col)))
+    (str table "." col " AS " table "_" col)))
 
 (defn comma-delim-str [coll]
   (apply str (interpose ", " coll)))
