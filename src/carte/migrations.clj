@@ -13,13 +13,13 @@
         (carte core)))
 
 (defn load-namespace
-				  "Require a namespace and return true if it is found. Return false if not."
-				  [ns-name]
-				  (try
-				   (do
-				     (require :reload (symbol ns-name))
-				     true)
-				   (catch java.io.FileNotFoundException e false)))
+  "Require a namespace and return true if it is found. Return false if not."
+  [ns-name]
+  (try
+   (do
+     (require :reload (symbol ns-name))
+     true)
+   (catch java.io.FileNotFoundException e false)))
 
 (defn str->int
   "Convert a string to a BigInteger."

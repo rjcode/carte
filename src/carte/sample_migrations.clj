@@ -1,5 +1,5 @@
 (ns carte.sample-migrations
-  (:require [carte.core :as database]))
+  (:require [carte.sql :as database]))
 
 (defn create-key-value-table [create-table-fn]
   (create-table-fn
@@ -15,13 +15,13 @@
 
 (defn drop-table [table]
   (fn [db]
-    (database/db-do-commands
+    (database/sql-do-commands
      db
      (str "DROP TABLE " (name table)))))
 
 (defn create-table [table & spec]
   (fn [db]
-    (database/db-do-commands
+    (database/sql-do-commands
      db
      (str
       "CREATE TABLE " (name table)

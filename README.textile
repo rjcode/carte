@@ -10,6 +10,8 @@ The project is currently being developed against MySQL but the plan is to make i
 
 Every disclaimer goes here...
 
+Note: The sample data has been changed but the documentation has not yet been updated. If you follow along with the documentation below, your results with vary.
+
 h2. Setting up MySQL and Cloning Carte
 
 If you would like to experiment with carte then the best way would be to follow these instructions which assume that you have MySQL installed and that you are using "Leiningen":http://github.com/technomancy/leiningen. 
@@ -288,21 +290,23 @@ There is a lot more that carte can do. See the unit tests for more examples.
 h2. TODO
 
 <ol>
-        <li>Make this work: ($ :album :with [:artists {:name
-        "The*"}])</li>    
-        <li>Add support for ordering, limiting and paging results</li>    
-	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass a data model in order for this to work.</li>
+	<li>Refactor</li>
 	<li>Add every kind of association to the example database and fill it with more data</li>
+	<li>Update the docs to reflect the new data</li>
+	<li>Demonstrate query with multiple associations</li>
+	<li>Demonstrate query with where conditions on associate table</li>
+    <li>Add support for ordering, limiting and paging results</li>    
+	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass a data model in order for this to work.</li>
 	<li>Add support for belongs-to and one-to-one associations</li>
 	<li>Create more functions to help with manipulating data within nested data structures</li>
 	<li>Clean up the code and tests</li>
 	<li>Improve this documentation</li>
-	<li>Demonstrate query with multiple associations</li>
-	<li>Demonstrate query with where conditions on associated
-	table</li>
+	<li>If you prefer to avoid a join and do two separate queries, provide a function that will merge the results into one data structure</li>
+	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL to abstract SQL and do this for you<li>
 	<li>Add support Derby and PostgreSQL</li>
-	<li>Smarter Query Planning - currently there are some unnecessary queries being performed</li>	
-	
+	<li>Smarter Query Planning - currently there are some unnecessary queries being performed</li>
+	<li>Think about putting the data model in the same map as the connection info in order to reduce the number of parameters that are passed around</li>
+	<li>It would make the code much simpler to always qualify col names in queries</li>	
 </ol>
 
 h2. License

@@ -5,4 +5,5 @@
                  [inflections "0.3"]]
   :dev-dependencies [[lein-clojars "0.5.0-SNAPSHOT"]
                      [jline "0.9.94"]
+                     [clojureql "0.9.7"]
                      [mysql/mysql-connector-java "5.1.6"]])
