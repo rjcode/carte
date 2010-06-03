@@ -180,7 +180,7 @@
 (def albums #{"Magic Potion"
               "Thickfreakness"
               "Elephant"
-              "White Blood Cells"
+              "White Blook Cells"
               "Broken Boy Soldiers"})
 
 (def magic-potion-tracks #{"Just Got To Be"

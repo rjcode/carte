@@ -234,8 +234,6 @@
      (if-let [table (-> rec meta ::table)]
        (delete-record db table rec)))
   ([db table rec]
-     (when *debug*
-       (println (str "deleting record from " table ": " rec)))
      (sql-delete db
                  table
                  (vec (criteria->where-seq [{:id (:id rec)}])))))
@@ -368,44 +366,3 @@
 (defn find-first-in [ks v]
   (first (find-in ks v)))
 
-(comment
-
-  (def $ (partial query db))
-
-  ;; example queries
-  
-  ($ :person)
-  ($ :person {:id 8})
-  ($ :person {:name "brent*"})
-
-  ;; arbitrary SQL
-  ($ ["SELECT * FROM person"])
-  ($ ["SELECT * FROM person WHERE id = ?" 8])
-
-  ;; using data models
-  (def data-model 
-       (model (car [:id :make])
-              (person [:id :first_name :last_name]
-                      (many-to-many :car))))
-
-  (def $ (partial query db data-model))
-
-  ($ :person)
-  ($ :person :with :cars)
-  
-  ;; The above query will perform a join through the :person_car table
-  ;; and will get all people, each one having a :cars key that contains
-  ;; a list of associated cars.
-  
-  ($ :person {:id 8})
-
-  ;; multiple associations
-  ($ :person :with :cars :homes)
-  
-  ;; arbitrary queries
-  ($ :person {:where ["id > ? AND name = ?" 5 "Brenton"]})
-
-  ;; this should integrate with what you already have
-  ($ :person {:where ["id > ?" 5] :name "Brenton"})
-  ($ :person {:where ["id > ?" 5] :name "Brenton"} {:name "Jim"})
-)

@@ -55,11 +55,11 @@
                                                (rest link-params))]
     {many-table {:alias alias}
      table {:joins #{{:type :many-to-many
-                         :table many-table
-                         :alias alias
-                         :link link
-                         :from from
-                         :to to}}}}))
+                      :table many-table
+                      :alias alias
+                      :link link
+                      :from from
+                      :to to}}}}))
 
 (defn one-to-one-link-table-spec [from-table link-params]
   (condp = (count link-params)
@@ -76,9 +76,9 @@
                                                                  coll)]
     {many-table {:alias alias}
      table {:joins #{{:type :one-to-many
-                         :table many-table
-                         :alias alias
-                         :link link}}}}))
+                      :table many-table
+                      :alias alias
+                      :link link}}}}))
 
 (defn table* [table & config]
   (loop [result {table
