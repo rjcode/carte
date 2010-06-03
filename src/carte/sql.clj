@@ -130,13 +130,13 @@
   (cond (wildcard-string? s) (re-gsub #"[*]" "%" s)
         :else s))
 
-;; The next few functions create where-specs. A where-spec is a
+;; The next few functions create where-seqs. A where-seq is a
 ;; sequence where the first element is a parameterized query string
 ;; and the remaining elements are the query parameters. For exmaple:
 ;; ["name = ? AND and < ?" "John" 20].
 
-(defn- key-value->where-spec*
-  "Create where-spec when the key is not :where."
+(defn- key-value->where-seq*
+  "Create where-seq when the key is not :where."
   [prefix key value]
   [(str (if prefix
           (str (name prefix) "."))
@@ -146,20 +146,20 @@
               :else " = ?"))
    value])
 
-(defn key-value->where-spec
-  "Given a criteria key and value, create a where-spec [string p1 p2 ... pN].
+(defn key-value->where-seq
+  "Given a criteria key and value, create a where-seq [string p1 p2 ... pN].
    For exmaple:
    {:name \"John\"} => [\"name = ?\" \"John\"]
    {:where [\"id > ?\" 7]} => [\"id > ?\" 7]"
   ([key value]
-     (key-value->where-spec nil key value))
+     (key-value->where-seq nil key value))
   ([prefix key value]
      (if (= key :where)
        (if prefix
            (concat [(qualify-where-string (name prefix) (first value))]
                    (rest value))
            value)
-       (key-value->where-spec* prefix key value))))
+       (key-value->where-seq* prefix key value))))
 
 (defn- criteria->queries-and-params
   "Reduce the criteria map to a list of query string and a list of params.
@@ -167,7 +167,7 @@
   [prefix m]
   (reduce
    (fn [a b]
-     (let [c (key-value->where-spec prefix
+     (let [c (key-value->where-seq prefix
                                     (key b)
                                     (val b))]
        [(conj (first a) (first c))
@@ -175,19 +175,19 @@
    [[] []]
    m))
 
-(defn map->where-spec
-  "Given a single map with multiple keys and values, create a where-spec
+(defn map->where-seq
+  "Given a single map with multiple keys and values, create a where-seq
    [string p1 p2 ... pN]. The result that corresponds to each key/value
    pair will be interposed with an AND."
   ([m]
-     (map->where-spec nil m))
+     (map->where-seq nil m))
   ([prefix m]
      (let [result (criteria->queries-and-params prefix m)]
        (concat
         [(interpose-str " AND " (first result))] (last result)))))
 
-(defn- or-where-spec
-  "Build a where-spec from a seq of query strings and a seq of values
+(defn- or-where-seq
+  "Build a where-seq from a seq of query strings and a seq of values
    interposed by OR. If there is more that one query string then group with
    parens."
   [strings values]
@@ -198,31 +198,31 @@
                              strings))
      (map replace-wildcard (filter #(not (nil? %)) values)))))
 
-(defn criteria->where-spec
-  "Given a list of maps for a single table, create a where-spec
+(defn criteria->where-seq
+  "Given a list of maps for a single table, create a where-seq
    [string p1 p2 ... pN]. All items within a map are interposed with AND
    and the results of each map are interposed with OR."
   ([criteria]
-     (criteria->where-spec nil criteria))
+     (criteria->where-seq nil criteria))
   ([table criteria]
      (loop [query-strings []
             values []
             criteria criteria]
        (if-let [next (first criteria)]
-         (if-let [[qs & v] (map->where-spec table next)]
+         (if-let [[qs & v] (map->where-seq table next)]
            (recur (conj query-strings qs)
                   (concat values v)
                   (rest criteria))
            (recur query-strings values (rest criteria)))
-         (or-where-spec query-strings values)))))
+         (or-where-seq query-strings values)))))
 
 ;; TODO - This code whould be much simpler if we always qualify column
 ;; names. You wouldn't need to know about the table name here because
 ;; this information is included in the criteria-map.
 
 ;; TODO - You may need to put parns around each part of the new query string.
-(defn- merge-where-specs
-  "Merge a sequence of where-specs into one. These specs are for different
+(defn- merge-where-seqs
+  "Merge a sequence of where-seqs into one. These specs are for different
    tables in a join so they will be interposed with AND."
   [coll]
   (if (seq coll)
@@ -238,22 +238,22 @@
      []
      coll)))
 
-(defn query->where-spec
+(defn query->where-seq
   "Given a parsed query with criteria for one or more tables, create a
-   where-spec [string p1 p2 ... pN]."
+   where-seq [string p1 p2 ... pN]."
   [table query]
   {:pre [(or (= (count query) 1)
              (not (nil? table)))]}
   (if (nil? table)
-    (criteria->where-spec table (val (first query)))
+    (criteria->where-seq table (val (first query)))
     (loop [result []
            query query]
       (if (seq query)
         (let [next (first query)]
           (recur (conj result
-                       (criteria->where-spec (key next) (val next)))
+                       (criteria->where-seq (key next) (val next)))
                  (rest query)))
-        (merge-where-specs result)))))
+        (merge-where-seqs result)))))
 
 ;; TODO - Get this working and test it. This is left over from a
 ;; previous implementation. We don't have a params map in the current
@@ -271,7 +271,7 @@
                         (interpose [","] (partition 2 sort-vec))) nil)]
     (if order-by-str (str " ORDER BY" order-by-str) "")))
 
-(defn create-table-qualified-names
+(defn- create-table-qualified-names
   "Given a table and a list of attributes, return a list of qualified names
    with aliases."
   [table attrs]
@@ -282,11 +282,15 @@
 
 ;; TODO - You are forcing the :id to be one of the attributes because
 ;; you need it later when organizing records. You also need the id
-;; when you go to save or delete a record. One way to get around this
-;; is to always put the id in the metadata and use that for sorting
-;; and saving records. 
+;; when you save or delete a record. One way to get around this is to
+;; always put the id in the metadata and use that for sorting and
+;; saving records. 
 
-(defn get-attrs [model table requested-attrs]
+(defn- column-seq
+  "Get the list of attributes for a specific table. If the user has requested
+   a list of attributes then use that list ensuring that it contains the id
+   col. If no list is requested then use the list in model if it exists."
+  [model table requested-attrs]
   {:pre [(not (nil? table))]}
   (if-let [attrs (table requested-attrs)]
     (if (contains? (set attrs) :id)
@@ -294,63 +298,96 @@
       (conj attrs :id))
     (-> model table :attrs)))
 
-(defn create-attr-list
+(defn columns-sql
+  "Create a comma delimited string containing the all the attributes to query.
+   Each attribute will be table qualified and aliased. If there is no model
+   and no attributes are requested then return *."
   ([model table]
-     (create-attr-list model table nil nil))
+     (columns-sql model table nil nil))
   ([model table req-attrs]
-     (create-attr-list model table req-attrs nil))
+     (columns-sql model table req-attrs nil))
   ([model table req-attrs joins]
      {:pre [(not (nil? table))]}
-     (if-let [attrs (get-attrs model table req-attrs)]
+     (if-let [attrs (column-seq model table req-attrs)]
        (loop [result (create-table-qualified-names table
-                                                      attrs)
-              joins (table joins)]
+                                                   attrs)
+              joins joins]
          (if (seq joins)
            (let [{type :type many-side :table}
                  (find-join-by model table :alias (first joins))
-                 attrs (get-attrs model many-side req-attrs)]
+                 attrs (column-seq model many-side req-attrs)]
              (recur (concat result (create-table-qualified-names many-side
-                                                                    attrs))
+                                                                 attrs))
                     (rest joins)))
-           (apply str " " (interpose ", " result))))
-       " *")))
+           result))
+       ["*"])))
 
-(defn create-many-to-many-join [base-rel result join]
-  (let [{rel :table link :link from :from to :to} join]
-    (let [[rel link from to] (map name [rel link from to])]
-      (str result
-           " LEFT JOIN " link " ON " (name base-rel) ".id = " link "." from
-           " LEFT JOIN " rel " ON " link "." to " = " rel ".id"))))
+(defn- many-to-many-join-sql
+  "Given the left table and the map that describes the join, create the
+   many-to-many join SQL string."
+  [l-table join]
+  (let [{r-table :table link :link from :from to :to} join]
+    (let [[l-table r-table link from to]
+          (map name [l-table r-table link from to])]
+      (str " LEFT JOIN " link " ON " l-table ".id = " link "." from
+           " LEFT JOIN " r-table " ON " link "." to " = " r-table ".id"))))
 
-(defn create-one-to-many-join [base-rel result join]
-  (let [{rel :table link :link} join]
-    (let [rel (name rel)
-          link (name link)]
-      (str result
-           " LEFT JOIN " rel " ON " (name base-rel) ".id = " rel "." link))))
+(defn- one-to-many-join-sql
+  "Given the left table and the map that describes the join, create the
+   one-to-many join SQL string."
+  [l-table join]
+  (let [{r-table :table link :link} join]
+    (let [[l-table r-table link] (map name [l-table r-table link])]
+      (str " LEFT JOIN " r-table
+           " ON " l-table ".id = " r-table "." link))))
 
-(defn create-joins [model table requested-joins]
-  (loop [result ""
-         joins (table requested-joins)]
+(defn joins-sql
+  "Given a model, table and list of requested joins, create the join SQL
+   string."
+  [model table requested-joins]
+  (loop [join-sql []
+         joins requested-joins]
     (if (seq joins)
       (let [join (find-join-by model table :alias (first joins))]
         (recur
          (cond (many-to-many? join)
-               (create-many-to-many-join table result join)
+               (conj join-sql (many-to-many-join-sql table join))
                (one-to-many? join)
-               (create-one-to-many-join table result join)
-               :else "")
+               (conj join-sql (one-to-many-join-sql table join))
+               :else join-sql)
          (rest joins))) 
-      result)))
+      join-sql)))
 
-(defn create-selects
-  "Create the select vector that can be passed to with-query-results"
+(defn each-join
+  "The joins map may have many entries. For each entry in the map, call an
+   sql generator function accumulating the results in a sequence. After all
+   entries are processed, create an SQL string from the distinct results."
+  ([table joins sql-fn]
+     (each-join table joins "" sql-fn))
+  ([table joins sep sql-fn]
+     (loop [sql (sql-fn table (table joins))
+            joins (dissoc joins table)]
+       (if (seq joins)
+         (let [next (first joins)]
+           (recur (concat sql
+                          (sql-fn (key next) (val next)))
+                  (rest joins)))
+         (interpose-str sep (distinct sql))))))
+
+(defn selects
+  "Create a sequence of selects where each can be passed to with-query-results.
+   The parsed query may have the keys: attrs, criteria and joins. Currently,
+   this sequence contains one query but in the future it may return more than
+   one as we start to implement more complicated queries and support more
+   backends."
   [model table parsed-query]
   [(let [{:keys [attrs criteria joins]} parsed-query
-         select-part (str "SELECT" (create-attr-list model table attrs joins)
-                          " FROM " (to-string table)
-                          (create-joins model table joins))
-         where-part (query->where-spec table criteria)
+         select-part (str "SELECT " (each-join table joins ", "
+                                     #(columns-sql model %1 attrs %2))
+                          " FROM " (name table)
+                          (each-join table joins
+                           #(joins-sql model %1 %2)))
+         where-part (query->where-seq table criteria)
          order-by-part (create-order-by {})]
      (if where-part
        (vec (cons (str select-part " WHERE " (first where-part) order-by-part)

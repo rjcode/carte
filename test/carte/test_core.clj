@@ -41,56 +41,201 @@
        [:with [:version]]        :=> {:joins {:page [:versions]}}
        [[:id] {:name "a"} :with :versions] :=> {:attrs {:page [:id]}
                                                 :criteria {:page [{:name "a"}]}
-                                                :joins {:page [:versions]}}))
+                                                :joins {:page [:versions]}})
+  
+  (are [table query _ expected] (= (parse-query data-model table query)
+                                   expected)
+       :artist
+       [:with [:album :with :tracks]] :=> {:joins {:artist [:albums]
+                                                   :album [:tracks]}}))
 
 (deftest test-dequalify-joined-map
-  (are [x y z] (= (dequalify-joined-map fixture-model-many-to-many x y) z)
-       :page
-       {:page_id 1 :page_name "one" :category_id 2}
-       {:id 1 :name "one"}
+  (t "test dequalify joind map"
+     (are [x y z] (= (dequalify-joined-map fixture-model-many-to-many x y) z)
 
-       :category
-       {:page_id 1 :page_name "one" :category_id 2 :category_name "two"}
-       {:id 2 :name "two"}))
+        :page
+        {:page_id 1 :page_name "one" :category_id 2}
+        {:id 1 :name "one"}
+        
+        :category
+        {:page_id 1 :page_name "one" :category_id 2 :category_name "two"}
+        {:id 2 :name "two"})
+  
+     (are [table map expected]
+          (= (dequalify-joined-map
+              (model
+               (page_category [:id :name])
+               (page [:id :name]
+                     (one-to-many categories
+                                  :page_category :page_id)))
+              table
+              map)
+             expected)
+          
+          :page
+          {:page_id 1 :page_name "one" :page_category_id 1
+           :page_category_name "c1"}
+          {:id 1 :name "one"})))
+
+(defn verify-map-metadata [m]
+  (let [md (meta m)
+        result (and (= (orig-key md) m)
+                    (not (nil? (table-key md))))]
+    (if (not result)
+      (do (println "metadata error: " md)
+          result)
+      result)))
+
+(defn verify-nested-metadata [coll]
+  (reduce
+   (fn [result next-map]
+     (and result
+          (verify-map-metadata next-map)
+          (reduce
+           (fn [a b]
+             (and a
+                  (let [next-value (val b)]
+                    (cond (vector? next-value)
+                          (verify-nested-metadata next-value)
+                          (map? next-value)
+                          (verify-map-metadata next-value)
+                          :else true))))
+           true
+           next-map)))
+   true
+   coll))
+
+(deftest test-flat->nested
+  (are [table joins recs expected]
+       (let [result (flat->nested data-model table joins [recs])]
+         (and (= result expected)
+              (true? (verify-nested-metadata result))))
+       
+       :artist
+       {}
+       [{:artist_id 1 :artist_name "A"}]
+       [{:id 1 :name "A"}]
+
+       :artist
+       nil
+       [{:artist_id 1 :artist_name "A"}]
+       [{:id 1 :name "A"}]
+
+       :artist
+       {}
+       [{:artist_id 1 :artist_name "A"}
+        {:artist_id 2 :artist_name "B"}]
+       [{:id 1 :name "A"}
+        {:id 2 :name "B"}]
+
+       :artist
+       {:artist [:albums]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"}]
+       [{:id 1 :name "A" :albums [{:id 2 :title "B"}]}]
+
+       :album
+       {:album [:artists :tracks]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :track_id 3 :track_name "C"}]
+       [{:id 2
+         :title "B"
+         :artists [{:id 1 :name "A"}]
+         :tracks [{:id 3 :name "C"}]}]
+
+       :artist
+       {:artist [:albums]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"}
+        {:artist_id 1 :artist_name "A" :album_id 3 :album_title "C"}]
+       [{:id 1 :name "A" :albums [{:id 2 :title "B"}
+                                  {:id 3 :title "C"}]}]
+
+       :album
+       {:album [:artists :tracks]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :track_id 3 :track_name "C"}
+        {:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :track_id 4 :track_name "D"}]
+       [{:id 2
+         :title "B"
+         :artists [{:id 1 :name "A"}]
+         :tracks [{:id 3 :name "C"}
+                  {:id 4 :name "D"}]}]
+
+       :artist
+       {:artist [:albums]}
+       [{:artist_id 1 :artist_name "A" :album_id 3 :album_title "C"}
+        {:artist_id 1 :artist_name "A" :album_id 4 :album_title "D"}
+        {:artist_id 2 :artist_name "B" :album_id 5 :album_title "E"}
+        {:artist_id 2 :artist_name "B" :album_id 6 :album_title "F"}]
+       [{:id 1 :name "A" :albums [{:id 3 :title "C"}
+                                  {:id 4 :title "D"}]}
+        {:id 2 :name "B" :albums [{:id 5 :title "E"}
+                                  {:id 6 :title "F"}]}]
+
+       :artist
+       {:artist [:albums] :album [:tracks]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :track_id 3 :track_name "C"}]
+       [{:id 1 :name "A" :albums [{:id 2 :title "B"
+                                   :tracks [{:id 3 :name "C"}]}]}]
+
+       :artist
+       {:artist [:albums] :album [:tracks]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :track_id 3 :track_name "C"}
+        {:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :track_id 4 :track_name "D"}]
+       [{:id 1 :name "A" :albums [{:id 2 :title "B"
+                                   :tracks [{:id 3 :name "C"}
+                                            {:id 4 :name "D"}]}]}]))
+
+(deftest test-flat->nested-metadata
+  (are [table joins recs f expected]
+       (let [result (flat->nested data-model table joins recs)]
+         (= (f result) expected))
+       
+       :artist
+       {}
+       [[{:artist_id 1 :artist_name "A"}]]
+       #(meta (first %))
+       {table-key :artist orig-key {:id 1 :name "A"}}
+
+       ))
 
 (deftest test-transform-query-plan-results
   (let [t-q-p-r
         (fn [model res]
-          (transform-query-plan-results model
-                                        :page
-                                        [:with :categories]
-                                        res))]
+          (flat->nested model
+                        :page
+                        (:joins
+                         (parse-query model
+                                      :page
+                                      [:with :categories]))
+                        res))]
     (t "test transform query plan results"
        (let [result (t-q-p-r fixture-model-many-to-many
                              fixture-join-flat)
-            first-result (first result)
-            categories (-> result second :categories)
-            first-cat (first categories)]
-        (t "- is the entire structure correct"
-           (is (= result fixture-join-nested)))
-        (t "- is metadata correct on top level item"
-           (is (= (meta first-result)
-                  {table-key :page
-                   orig-key first-result})))
-        (t "- does metadata have original value"
-           (is (= first-result
-                  (-> first-result meta orig-key))))
-        (t "- does a specific category contain the correct metadata"
-           (is (= (meta first-cat)
-                  {table-key :category
-                   orig-key first-cat})))
-        (t "- does metadata for category contain the original value"
-           (is (= first-cat (-> first-cat meta orig-key)))))
-      (t "with common prefixes"
-         (is (= (t-q-p-r (model
-                          (page_category [:id :name])
-                          (page [:id :name]
-                                (one-to-many categories
-                                             :page_category :page_id)))
-                         [[{:page_id 1 :page_name "one" :page_category_id 1
-                            :page_category_name "c1"}]])
-                [{:id 1 :name "one"
-                  :categories [{:id 1 :name "c1"}]}]))))))
+             first-result (first result)
+             categories (-> result second :categories)
+             first-cat (first categories)]
+         (t "- is the entire structure correct"
+            (is (= result fixture-join-nested)))
+         (t "- does a specific category contain the correct metadata"
+            (is (= (meta first-cat)
+                   {table-key :category
+                    orig-key first-cat})))
+         (t "- does metadata for category contain the original value"
+            (is (= first-cat (-> first-cat meta orig-key)))))
+       (t "with common prefixes"
+          (is (= (t-q-p-r (model
+                           (page_category [:id :name])
+                           (page [:id :name]
+                                 (one-to-many categories
+                                              :page_category :page_id)))
+                          [[{:page_id 1 :page_name "one" :page_category_id 1
+                             :page_category_name "c1"}]])
+                 [{:id 1 :name "one"
+                   :categories [{:id 1 :name "c1"}]}]))))))
 
 (deftest test-dismantle-record
   (let [result
@@ -149,9 +294,6 @@
        fixture-model-one-and-many-to-many :page :versions
        fixture-join-version))
 
-;; The following tests require that you have a mysql database
-;; available on localhost. 
-
 (deftest test-find-in
   (are [query _ expected]
        (= (find-in query
@@ -179,6 +321,9 @@
        [{:title "Let's Dance"} :artists :name] :=> ["David Bowie"]
 
        [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]))
+
+;; The following tests require that you have a mysql database
+;; available on localhost. 
 
 (deftest test-query
   (with-test-database default-test-data
@@ -209,10 +354,18 @@
          artists
          
          ($ :album) count (count albums)
-         
+                  
          ($1 :artist [:name] {:name "Jack White"})
          :name
          "Jack White"
+
+         ($1 :artist [:name] {:name "Jack White"})
+         #(-> % meta orig-key :name)
+         "Jack White"
+
+         ($1 :artist [:name] {:name "Jack White"})
+         #(-> % meta table-key)
+         :artist
          
          ($ :album {:title "Mag*"} {:title "Th*"})
          #(set (map :title %))
@@ -246,7 +399,31 @@
          
          ($ :album :with [:artist {:name "Jack White"}])
          #(set (map :title %))
-         #{"Elephant" "Broken Boy Soldiers"})
+         #{"Elephant" "Broken Boy Soldiers"}
+
+         ($ :album :with :tracks)
+         #(set (find-in [{:title "Magic Potion"} :tracks :name] %))
+         magic-potion-tracks
+
+         ($ :album :with [:track {:name "Seven*"}])
+         #(set (map :title %))
+         #{"Elephant"}
+
+         ($ :album :with :tracks :artists)
+         #(set (map :name (find-in [{:title "Elephant"} :artists] %)))
+         the-white-stripes
+
+         ($ :album :with :tracks :artists)
+         #(set (map :name (find-in [{:title "Elephant"} :tracks] %)))
+         elephant-tracks
+         
+         ($ :artist :with [:album :with :tracks])
+         #(set (map :name (find-in [{:name "Meg White"} :albums :tracks] %)))
+         elephant-tracks
+
+         ($ :artist :with [:album :with [:track {:name "Call*"}]])         
+         #(set (map :name %))
+         the-raconteurs)
     
      (let [result ($1 :album {:title "Magic Potion"})]
        (is (= (:title result) "Magic Potion"))

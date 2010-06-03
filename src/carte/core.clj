@@ -85,61 +85,79 @@
             {}
             m)))
 
-(defn merge-many-collection [coll new-coll]
-  (vec (concat coll new-coll)))
+(defn distinct-ids-in-order [coll]
+  (distinct (reduce (fn [a b]
+                      (conj a (:id b)))
+                    []
+                    coll)))
 
-(defn merge-many
-  "Create a map from the many side of the association and add it to the
-   collection contained in the one side."
-  [model table sub-table alias result-map next-result]
-  (let [sub (dequalify-joined-map model sub-table next-result)
-        id ((keyword (str (name table) "_id")) next-result)
-        host (get result-map id)]
-    (assoc result-map id
-           (if (:id sub)
-             (merge-with merge-many-collection host
-                         {alias [(with-meta sub {::table sub-table
-                                                 ::original sub})]})
-             (assoc host alias [])))))
+(declare merge-nested)
 
-(defn order-and-result-map
-  "In one pass through the results, create a vector containing the order of
-   the results by id and a map with the unique results for this table."
-  [model table results]
-  (reduce
-   (fn [a b]
-     (let [m (dequalify-joined-map model table b)]
-       [(conj (first a) (:id m))
-        (assoc (last a) (:id m) m)]))
-   [[] {}]
-   results))
+(defn concat-assoc [a b]
+  (cond (and (vector? a) (vector? b) (not (= a b)))
+        (merge-nested (vec (concat a b)))
+        :else a))
 
-(defn transform-query-plan-results
-  [model table q results]
-  (map #(with-meta % {::table table
-                      ::original %})
-       (if (and model (table model))
-         (let [results (first results)
-               [order rec-map] (order-and-result-map model table results)
-               {:keys [joins]} (parse-query model table q)]
-           (loop [joins (table joins)
-                  rec-map rec-map]
-             (if (seq joins)
-               (let [{sub-table :table alias :alias}
-                     (find-join-by model table :alias (first joins))]
-                 (recur
-                  (rest joins)
-                  (reduce (partial merge-many model table sub-table alias)
-                          rec-map
-                          results)))
-               (vec (map #(get rec-map %) (distinct order))))))
-         (map (partial dequalify-joined-map model table)
-              (first results)))))
+(defn merge-nested
+  ([existing-rec new-rec]
+     (let [existing-meta (meta existing-rec)
+           merged-rec (merge-with concat-assoc existing-rec new-rec)]
+       (with-meta merged-rec {::table (::table existing-meta)
+                              ::original merged-rec})))
+  ([coll]
+     (let [order (distinct-ids-in-order coll)
+           index (reduce (fn [a b]
+                           (assoc a (:id b)
+                                  (if-let [existing-rec (get a (:id b))]
+                                    (merge-nested existing-rec b)
+                                    b)))
+                         {}
+                         coll)]
+       (vec (map #(get index %) order)))))
+
+(declare single-record-flat->nested)
+
+(defn add-association [model joins join-model nested-rec flat-rec]
+  (let [{assoc-table :table alias :alias} join-model
+        assoc-rec (single-record-flat->nested model
+                                              assoc-table
+                                              joins
+                                              flat-rec)]
+    (assoc nested-rec alias (if (nil? (:id assoc-rec))
+                              []
+                              [assoc-rec]))))
+
+(defn single-record-flat->nested [model table joins flat-rec]
+  (loop [nested-rec (dequalify-joined-map model table flat-rec)
+         associations (table joins)]
+    (if (seq associations)
+      (recur (add-association model
+                              joins
+                              (find-join-by model
+                                            table
+                                            :alias
+                                            (first associations))
+                              nested-rec
+                              flat-rec)
+             (rest associations))
+      (with-meta nested-rec {::table table
+                             ::original nested-rec}))))
+
+;; This will be the new implementation of transforming query plan
+;; results. I have already written the tests. Once all the tests pass
+;; then you should be able to swap in this implementation.
+(defn flat->nested [model table joins records-seq]
+  (let [model (or model {})]
+     (merge-nested
+      (vec
+       (map #(single-record-flat->nested model table joins %)
+            (first records-seq))))))
 
 (defn execute-query-plan [conn model table q]
-  (->> (create-selects model table (parse-query model table q))
-       (execute-multiple-selects conn model table)
-       (transform-query-plan-results model table q)))
+  (let [parsed-query (parse-query model table q)]
+    (->> (selects model table parsed-query)
+         (execute-multiple-selects conn model table)
+         (flat->nested model table (:joins parsed-query)))))
 
 (defn query [db & q]
   (let [conn (:connection db)
@@ -169,6 +187,8 @@
 
 (declare save-or-update)
 
+;; TODO - this should not return collections that are nil
+
 (defn dismantle-record
   "Return a map containing :base-record and each of the collections that
    were in the base record. The value of base record will be the passed
@@ -179,7 +199,9 @@
         coll-names (map :alias joins)]
     (merge {:base-record (apply dissoc record coll-names)}
            (reduce (fn [a b]
-                     (assoc a b (b record)))
+                     (if (b record)
+                       (assoc a b (b record))
+                       a))
                    {}
                    coll-names))))
 
@@ -216,7 +238,7 @@
        (println (str "deleting record from " table ": " rec)))
      (sql-delete db
                  table
-                 (vec (criteria->where-spec [{:id (:id rec)}])))))
+                 (vec (criteria->where-seq [{:id (:id rec)}])))))
 
 (defmulti save-associations (fn [_ join-model _ _ _] (:type join-model)))
 
@@ -238,6 +260,29 @@
         (delete-record db link next))
       (doseq [next items-to-add]
         (save-or-update db next)))))
+
+(defn set-complement
+  "Return all things in set b that are not in set a"
+  [a b]
+  (filter #(not (contains? a %)) b))
+
+;; TODO - the link column is not currently required to be in the
+;; associated record in order for this work. If a record is updated
+;; then it will be deleted and the new version will be saved. You
+;; could make this more efficient by updating records that have been
+;; changed. This would still not requre you to have the link column.
+
+(defmethod save-associations :one-to-many
+  [db join-model record alias coll]
+  (let [old-list (set (-> record meta ::original alias))
+        new-list (set coll)
+        items-to-delete (set-complement new-list old-list)
+        items-to-add (set-complement old-list new-list)]
+    (do
+      (doseq [next items-to-delete]
+        (delete-record db next))
+      (doseq [next items-to-add]
+        (save-or-update db (assoc next (:link join-model) (:id record)))))))
 
 (defmethod save-associations :default
   [_ _ _ _ _]

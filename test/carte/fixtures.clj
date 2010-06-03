@@ -14,8 +14,7 @@
   (apply str (interpose ", " coll)))
 
 (defn attr-list [coll]
-  (str " "
-       (comma-delim-str
+  (str (comma-delim-str
         (map #(let [[table attrs] %]
                 (comma-delim-str
                  (reduce (fn [a b]
@@ -29,7 +28,7 @@
 (def version-table [:version [:id :content]])
 
 (defn select-from [attrs]
-  (str "SELECT" attrs " FROM page"))
+  (str "SELECT " attrs " FROM page"))
 
 (def many-to-many-join-query
      (str (select-from
@@ -130,8 +129,10 @@
 
 (def data-model
      (model
+      (track [:id :name])
       (album [:id :title]
-             (many-to-many :artist))
+             (many-to-many :artist)
+             (one-to-many :track))
       (artist [:id :name]
               (many-to-many :album => :album_artist))))
 
@@ -154,18 +155,14 @@
   (do
     (doseq [next ($ :album_artist)]
       (delete-record db next))
+    (doseq [next ($ :track)]
+      (delete-record db next))
     (doseq [next ($ :album)]
+      (delete-record db next))
+    (doseq [next ($ :genre)]
       (delete-record db next))
     (doseq [next ($ :artist)]
       (delete-record db next))))
-
-(defn add-artists-to-album [album artists]
-  (if (seq artists)
-    (do
-      (! (conj-in ($1 :album {:title album} :with :artists)
-                  [:artists]
-                  ($1 :artist {:name (first artists)})))
-      (recur album (rest artists)))))
 
 (def the-black-keys #{"Dan Auerbach" "Patrick Carney"})
 (def the-white-stripes #{"Jack White" "Meg White"})
@@ -186,14 +183,56 @@
               "White Blook Cells"
               "Broken Boy Soldiers"})
 
+(def magic-potion-tracks #{"Just Got To Be"
+                           "Your Touch"
+                           "You're the One"
+                           "Strange Desire"})
+
+(def elephant-tracks #{"Seven Nation Army"
+                       "Black Math"
+                       "Girl, You Have No Faith In Medicine"})
+
+(def broken-boy-soldiers-tracks #{"Steady As She Goes"
+                                  "Level"
+                                  "Hands"
+                                  "Together"
+                                  "Call It a Day"})
+
+(def genres #{"Blues/Rock"
+              "Rock"})
+
+(defn add-artists-to-album [album artists]
+  (if (seq artists)
+    (do
+      (! (conj-in ($1 :album {:title album} :with :artists)
+                  [:artists]
+                  ($1 :artist {:name (first artists)})))
+      (recur album (rest artists)))))
+
+(defn add-tracks-to-album [album tracks]
+  (if (seq tracks)
+    (do
+      (! (conj-in ($1 :album {:title album} :with :tracks)
+                  [:tracks]
+                  ($1 :track {:name (first tracks)})))
+      (recur album (rest tracks)))))
+
 (defn default-test-data []
   (do
     (! :album (map #(hash-map :title %) albums))
     (! :artist (map #(hash-map :name %) artists))
+    (! :genre (map #(hash-map :name %) genres))
+    (! :track (map #(hash-map :name %) (concat magic-potion-tracks
+                                               elephant-tracks
+                                               broken-boy-soldiers-tracks)))
     (add-artists-to-album "Magic Potion" the-black-keys)
     (add-artists-to-album "Thickfreakness" the-black-keys)
     (add-artists-to-album "Elephant" the-white-stripes)
-    (add-artists-to-album "Broken Boy Soldiers" the-raconteurs)))
+    (add-artists-to-album "Broken Boy Soldiers" the-raconteurs)
+
+    (add-tracks-to-album "Magic Potion" magic-potion-tracks)
+    (add-tracks-to-album "Elephant" elephant-tracks)
+    (add-tracks-to-album "Broken Boy Soldiers" broken-boy-soldiers-tracks)))
 
 (defn ensure-test-database
   "Ensure that the database exists and contains the tables that you will
@@ -206,7 +245,7 @@
          (build-test-database)))
      (catch Exception _ (build-test-database)))
     (try
-     (migrate db "sandbar.sample-database-migrations")
+     (migrate db "carte.sample-migrations")
      (catch Exception _ false))))
 
 (defmacro with-test-database [data-set & body]

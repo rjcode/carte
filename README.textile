@@ -297,7 +297,7 @@ h2. TODO
 	<li>Demonstrate query with where conditions on associate table</li>
     <li>Add support for ordering, limiting and paging results</li>    
 	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass a data model in order for this to work.</li>
-	<li>Add support for belongs-to and one-to-one associations</li>
+	<li>Add support for one-to-many, many-to-one associations, when you delete an item with one-to-many associations then you will also delete the associated items</li>
 	<li>Create more functions to help with manipulating data within nested data structures</li>
 	<li>Clean up the code and tests</li>
 	<li>Improve this documentation</li>
