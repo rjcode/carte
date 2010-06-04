@@ -101,18 +101,19 @@
      {:type :one-to-many
       :table :version
       :alias :versions
-      :link :page_id})
+      :link :page_id
+      :cascade-delete false})
 
 (def fixture-artist-album-model
-     {:album {:attrs [:id :title]
-              :joins #{{:type :many-to-many
-                        :table :artist
-                        :alias :artists
-                        :link :album_artist
-                        :from :album_id
-                        :to :artist_id}}}
-      :artist {:attrs [:id :name]
-               :alias :artists}})
+     {:model {:album {:attrs [:id :title]
+                      :joins #{{:type :many-to-many
+                                :table :artist
+                                :alias :artists
+                                :link :album_artist
+                                :from :album_id
+                                :to :artist_id}}}
+              :artist {:attrs [:id :name]
+                       :alias :artists}}})
 
 ;; In order for the following functions to work, you will need to
 ;; create the database carte_test_db.
@@ -127,18 +128,20 @@
                       :user "carte_db_user"
                       :password "123456789"}})
 
-(def data-model
+(def sample-data-model
      (model
-      (track [:id :name])
+      (track [:id :name]
+             (belongs-to :album))
       (album [:id :title]
-             (many-to-many :artist)
-             (one-to-many :track))
+             (many-to-many :artist))
       (artist [:id :name]
               (many-to-many :album => :album_artist))))
 
-(def ! (partial save-or-update db data-model))
-(def $ (partial query db data-model))
-(def $1 (partial query-1 db data-model))
+(def sample-db (merge db sample-data-model))
+
+(def ! (partial save-or-update sample-db))
+(def $ (partial fetch sample-db))
+(def $1 (partial fetch-one sample-db))
 
 (defn build-test-database []
   (do
@@ -151,18 +154,19 @@
      true
      (catch Exception _ false))))
 
+;; Notice that we do not explicitly delete tracks here because they
+;; belong-to albums.
+
 (defn delete-all-test-data []
   (do
     (doseq [next ($ :album_artist)]
-      (delete-record db next))
-    (doseq [next ($ :track)]
-      (delete-record db next))
+      (delete-record sample-db next))
     (doseq [next ($ :album)]
-      (delete-record db next))
+      (delete-record sample-db next))
     (doseq [next ($ :genre)]
-      (delete-record db next))
+      (delete-record sample-db next))
     (doseq [next ($ :artist)]
-      (delete-record db next))))
+      (delete-record sample-db next))))
 
 (def the-black-keys #{"Dan Auerbach" "Patrick Carney"})
 (def the-white-stripes #{"Jack White" "Meg White"})

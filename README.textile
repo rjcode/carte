@@ -62,12 +62,12 @@ A data model is created using the <code>model</code> macro. Below we create a si
 <code>
 (def data-model
      (model
-       (track [:id :name])
+       (track [:id :name]
+              (belongs-to :album))
        (album [:id :title]
-         (many-to-many :artist)
-         (one-to-many :track))
+              (many-to-many :artist))
        (artist [:id :name]
-         (many-to-many :album => :album_artist))))
+               (many-to-many :album => :album_artist))))
 </code>
 </pre>
 
@@ -77,22 +77,26 @@ This model makes a lot of assumptions about table names. If you want to be expli
 <code>
 (def data-model
      (model
-       (track [:id :name])
+       (track [:id :name]
+              (belongs-to :album tracks :album_id))
        (album [:id :title]
-         (many-to-many artists :artist => :album_artist :album_id :artist_id))
-         (one-to-many tracks :track :album_id))
+              (many-to-many artists :artist => :album_artist :album_id :artist_id)))
        (artist [:id :name]
-         (many-to-many albums :album => :album_artist :artist_id :album_id))))
+               (many-to-many albums :album => :album_artist :artist_id :album_id))))
 </code>
 </pre>
+
+There is also a <code>one-to-many</code> association that is available. <code>belongs-to</code> in the example above will create a one-to-many association between albums and tracks. When an album is deleted then all associated tracks will be deleted. If you were to use <code>one-to-many</code> in the above model to create an association between album and tracks then, if there is constraint on the foreign key, you would not be allowed to delete an album if it had associated tracks.
 
 The API for Carte provides the functions <code>save-or-update</code>, <code>query</code> and <code>query-1</code> which all take both the database configuration and the model as parameters. In the example below we create some helper functions to make things simpler. In the future I may combine the model and the database configuration into one map.
 
 <pre>
 <code>
-(def ! (partial save-or-update db data-model))
-(def $ (partial query db data-model))
-(def $1 (partial query-1 db data-model))
+(def db-and-model (merge db data-model))
+
+(def ! (partial save-or-update db-and-model))
+(def $ (partial fetch db-and-model))
+(def $1 (partial fetch-one db-and-model))
 </code>
 </pre>
 
@@ -428,6 +432,24 @@ user> (binding [carte.sql/*debug* true]
 updating record in :album: {:title "Magic Potion"}
 [SELECT * FROM album_artist WHERE album_artist.album_id = ? 16]
 deleting record in :album_artist where ["id = ?" 31]
+</code>
+</pre>
+
+Because of the belongs-to association between album and track, when we delete an album, all associated tracks will be deleted. In the example below, we first have to remove all artists from the album or database constraints will prevent us from deleting it.
+
+<pre>
+<code>
+user> (def r ($1 :album {:title "Magic Potion"} :with :artists))
+user> (def r (assoc r :artists []))
+user> (! r)
+user> (binding [carte.sql/*debug* true] 
+        (delete-record sample-db r))
+["SELECT track.id AS track_id, track.name AS track_name FROM track WHERE track.album_id = ?" 116]
+deleting record in :track where ["id = ?" 277]
+deleting record in :track where ["id = ?" 278]
+deleting record in :track where ["id = ?" 279]
+deleting record in :track where ["id = ?" 280]
+deleting record in :album where ["id = ?" 116]
 </code>
 </pre>
 

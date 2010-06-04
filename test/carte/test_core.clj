@@ -11,7 +11,7 @@
         (carte core model fixtures)))
 
 (deftest test-parse-join-part
-  (are [x _ y] (= (parse-join-part fixture-model-one-to-many
+  (are [x _ y] (= (parse-join-part (:model fixture-model-one-to-many)
                                    :page
                                    x)
                   y)
@@ -25,7 +25,7 @@
                                                  :joins {:page [:versions]}}))
 
 (deftest test-parse-query
-  (are [x _ y] (= (parse-query fixture-model-one-to-many
+  (are [x _ y] (= (parse-query (:model fixture-model-one-to-many)
                                :page
                                x)
                   y)
@@ -43,7 +43,9 @@
                                                 :criteria {:page [{:name "a"}]}
                                                 :joins {:page [:versions]}})
   
-  (are [table query _ expected] (= (parse-query data-model table query)
+  (are [table query _ expected] (= (parse-query (:model sample-data-model)
+                                                table
+                                                query)
                                    expected)
        :artist
        [:with [:album :with :tracks]] :=> {:joins {:artist [:albums]
@@ -51,7 +53,10 @@
 
 (deftest test-dequalify-joined-map
   (t "test dequalify joind map"
-     (are [x y z] (= (dequalify-joined-map fixture-model-many-to-many x y) z)
+     (are [x y z] (= (dequalify-joined-map (:model fixture-model-many-to-many)
+                                           x
+                                           y)
+                     z)
 
         :page
         {:page_id 1 :page_name "one" :category_id 2}
@@ -63,11 +68,11 @@
   
      (are [table map expected]
           (= (dequalify-joined-map
-              (model
-               (page_category [:id :name])
-               (page [:id :name]
-                     (one-to-many categories
-                                  :page_category :page_id)))
+              (:model (model
+                       (page_category [:id :name])
+                       (page [:id :name]
+                             (one-to-many categories
+                                          :page_category :page_id))))
               table
               map)
              expected)
@@ -107,7 +112,7 @@
 
 (deftest test-flat->nested
   (are [table joins recs expected]
-       (let [result (flat->nested data-model table joins [recs])]
+       (let [result (flat->nested sample-data-model table joins [recs])]
          (and (= result expected)
               (true? (verify-nested-metadata result))))
        
@@ -191,16 +196,14 @@
 
 (deftest test-flat->nested-metadata
   (are [table joins recs f expected]
-       (let [result (flat->nested data-model table joins recs)]
+       (let [result (flat->nested sample-data-model table joins recs)]
          (= (f result) expected))
        
        :artist
        {}
        [[{:artist_id 1 :artist_name "A"}]]
        #(meta (first %))
-       {table-key :artist orig-key {:id 1 :name "A"}}
-
-       ))
+       {table-key :artist orig-key {:id 1 :name "A"}}))
 
 (deftest test-transform-query-plan-results
   (let [t-q-p-r
@@ -240,7 +243,7 @@
 (deftest test-dismantle-record
   (let [result
         (dismantle-record
-         fixture-model-many-to-many
+         (:model fixture-model-many-to-many)
          (with-meta
            {:id 1 :name "a" :current_version 2
             :categories [(with-meta {:id 1 :name "a"}
@@ -284,7 +287,7 @@
                                      orig-key record})))))
 
 (deftest test-find-join-by
-  (are [x y z m] (is (= (find-join-by x y :alias z) m))
+  (are [x y z m] (is (= (find-join-by (:model x) y :alias z) m))
        fixture-model-many-to-many :page :categories
        fixture-join-category
        fixture-model-one-to-many :page :versions
@@ -329,23 +332,23 @@
   (with-test-database default-test-data
     (are [q f expected] (= (f q) expected)
          
-         (query db ["select * from album"]) count (count albums)
+         (fetch db ["select * from album"]) count (count albums)
          
-         (query db ["select * from album where title = \"Magic Potion\""])
+         (fetch db ["select * from album where title = \"Magic Potion\""])
          #(:title (first %))
          "Magic Potion"
          
-         (query-1 db ["select * from album where title = \"Magic Potion\""])
+         (fetch-one db ["select * from album where title = \"Magic Potion\""])
          :title
          "Magic Potion"
          
-         (query db :album) count (count albums)
+         (fetch db :album) count (count albums)
          
-         (query db :artist)
+         (fetch db :artist)
          #(set (map :name %))
          artists
          
-         (query db :artist [:name])
+         (fetch db :artist [:name])
          #(set (map :name %))
          artists
          

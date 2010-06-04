@@ -66,8 +66,7 @@
   [db table where]
   (when *debug*
     (println (str "deleting record in " table " where " where)))
-  (with-transaction db
-    #(sql/delete-rows table where)))
+  #(sql/delete-rows table where))
 
 (defn sql-query
   "Run a query using raw sql of the form
@@ -81,11 +80,11 @@
 (defn execute-multiple-selects
   "Given multiple select queries, run each of them and return a vector of
    results."
-  [conn model table selects]
+  [db table selects]
   (when *debug*
     (doseq [next-select selects]
       (println next-select)))
-  (sql/with-connection conn
+  (sql/with-connection (:connection db)
     (reduce (fn [results next-select]
               (sql/with-query-results res
                 next-select
@@ -380,8 +379,9 @@
    this sequence contains one query but in the future it may return more than
    one as we start to implement more complicated queries and support more
    backends."
-  [model table parsed-query]
-  [(let [{:keys [attrs criteria joins]} parsed-query
+  [db table parsed-query]
+  [(let [model (:model db)
+         {:keys [attrs criteria joins]} parsed-query
          select-part (str "SELECT " (each-join table joins ", "
                                      #(columns-sql model %1 attrs %2))
                           " FROM " (name table)

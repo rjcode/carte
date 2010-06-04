@@ -73,12 +73,34 @@
 (defmethod compile-association :one-to-many
   [table coll]
   (let [[alias many-table link] (one-to-one-link-table-spec table
-                                                                 coll)]
+                                                            coll)]
     {many-table {:alias alias}
      table {:joins #{{:type :one-to-many
                       :table many-table
                       :alias alias
-                      :link link}}}}))
+                      :link link
+                      :cascade-delete false}}}}))
+
+(defn belongs-to-link-table-spec [table link-params]
+  (condp = (count link-params)
+    4 (rest link-params)
+    3 (conj (rest link-params)
+            (link-col (second link-params)))
+    2 [(last link-params)
+       (pluralize-table table)
+       (link-col (last link-params))]))
+
+;; TODO - test this kind of association
+
+(defmethod compile-association :belongs-to
+  [table coll]
+  (let [[one-table alias link] (belongs-to-link-table-spec table coll)]
+    {table {:alias alias}
+     one-table {:joins #{{:type :one-to-many
+                          :table table
+                          :alias alias
+                          :link link
+                          :cascade-delete true}}}}))
 
 (defn table* [table & config]
   (loop [result {table
@@ -100,7 +122,7 @@
     `(table* ~table ~@new-args)))
 
 (defn model* [& body]
-  (apply deep-merge-with set-merge body))
+  {:model (apply deep-merge-with set-merge body)})
 
 (defmacro model [& body]
   (let [new-body (map #(apply list 'table %) body)]

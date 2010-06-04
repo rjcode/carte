@@ -76,7 +76,7 @@
 
 (defn get-version-record [db]
   (first
-   (query db :key_value {:key_name "database-version"})))
+   (fetch db :key_value {:key_name "database-version"})))
 
 (defn get-version [db]
   (:value

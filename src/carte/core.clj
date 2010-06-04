@@ -10,6 +10,41 @@
   (:use (carte sql model)
         (clojure.contrib [map-utils :only (deep-merge-with)])))
 
+(defn conj-in [m ks v]
+  (let [size (count (get-in m ks))]
+    (assoc-in m (conj ks size) v)))
+
+(defn remove-in [m ks v]
+  (let [coll (get-in m ks)]
+    (assoc-in m
+              ks
+              (filter #(not (= v (select-keys % (keys v)))) coll))))
+
+(defn find-in [ks v]
+  (loop [ks ks
+         result v]
+    (if (seq ks)
+      (recur (rest ks)
+             (let [next-test (first ks)]
+               (cond (map? next-test)
+                     (filter (fn [record]
+                               (= next-test
+                                  (select-keys record (keys next-test))))
+                             result)
+                     (keyword? next-test)
+                     (reduce (fn [a b]
+                               (let [next (next-test b)]
+                                 (if (or (vector? next) (list? next))
+                                   (concat a next)
+                                   (conj a next))))
+                             []
+                             result))))
+      result)))
+
+(defn find-first-in [ks v]
+  (first (find-in ks v)))
+
+
 (defn parse-query-part [table q]
   (loop [q q
          result {}]
@@ -146,37 +181,34 @@
 ;; This will be the new implementation of transforming query plan
 ;; results. I have already written the tests. Once all the tests pass
 ;; then you should be able to swap in this implementation.
-(defn flat->nested [model table joins records-seq]
-  (let [model (or model {})]
+(defn flat->nested [db table joins records-seq]
+  (let [model (or (:model db) {})]
      (merge-nested
       (vec
        (map #(single-record-flat->nested model table joins %)
             (first records-seq))))))
 
-(defn execute-query-plan [conn model table q]
-  (let [parsed-query (parse-query model table q)]
-    (->> (selects model table parsed-query)
-         (execute-multiple-selects conn model table)
-         (flat->nested model table (:joins parsed-query)))))
+(defn execute-query-plan [db table q]
+  (let [parsed-query (parse-query (:model db) table q)]
+    (->> (selects db table parsed-query)
+         (execute-multiple-selects db table)
+         (flat->nested db table (:joins parsed-query)))))
 
-(defn query [db & q]
-  (let [conn (:connection db)
-        first-arg (first q)
+(defn fetch [db & q]
+  (let [first-arg (first q)
         q (rest q)]
     (cond (vector? first-arg) (sql-query db first-arg)
-          (keyword? first-arg) (execute-query-plan conn nil first-arg q)
-          (map? first-arg)
-          (execute-query-plan conn first-arg (first q) (rest q))
+          (keyword? first-arg) (execute-query-plan db first-arg q)
           :else (throw
                  (Exception.
-                  (str "Invalid query syntax. "
-                       "First arg is not raw sql, a model or a table."))))))
+                  (str "Invalid fetch syntax. "
+                       "First arg is not raw sql or a table."))))))
 
-(defn query-1
-  "Same as query but we expect to return a single record. Throws and
+(defn fetch-one
+  "Same as fetch but we expect to return a single record. Throws and
    exception if more than one result is received."
   [& args]
-  (let [result (apply query args)
+  (let [result (apply fetch args)
         result-count (count result)]
     (if (> 2 result-count)
       (first result)
@@ -226,17 +258,29 @@
          (do
            (sql-insert db table record)
            (first
-            (query db table record))))))
+            (fetch db table record))))))
     (:id record)))
 
 (defn delete-record
+  "Delete a record and recursively delete any records in one-to-many
+   associations."
   ([db rec]
      (if-let [table (-> rec meta ::table)]
-       (delete-record db table rec)))
+       (delete-record db table rec)
+       (throw
+        (Exception. (str "No table in record metadata for " rec ".")))))
   ([db table rec]
-     (sql-delete db
-                 table
-                 (vec (criteria->where-seq [{:id (:id rec)}])))))
+     (with-transaction db
+       (do (let [joins (filter #(= :one-to-many (:type %))
+                               (-> db :model table :joins))]
+             (doseq [{table :table link :link cascade-delete :cascade-delete}
+                     joins]
+               (if cascade-delete
+                 (doseq [next (fetch db table {link (:id rec)})]
+                   (delete-record db next)))))
+           (sql-delete db
+                       table
+                       (vec (criteria->where-seq [{:id (:id rec)}])))))))
 
 (defmulti save-associations (fn [_ join-model _ _ _] (:type join-model)))
 
@@ -244,7 +288,7 @@
   [db join-model record alias coll]
   (let [{:keys [link from to]} join-model
         selected-ids (set (map :id coll))
-        current-items (query db link {from (:id record)})
+        current-items (fetch db link {from (:id record)})
         current-item-ids (set (map to current-items))
         items-to-delete (filter #(not (contains? selected-ids (to %)))
                                 current-items)
@@ -286,8 +330,9 @@
   [_ _ _ _ _]
   nil)
 
-(defn save-or-update-record* [db model record]
-  (let [{record :base-record :as m} (dismantle-record model record)
+(defn save-or-update-record* [db record]
+  (let [model (:model db)
+        {record :base-record :as m} (dismantle-record model record)
         base-table (-> record meta ::table)
         base-id (save-and-get-id db record)]
     (loop [collections (dissoc m :base-record)]
@@ -301,16 +346,16 @@
                                (assoc record :id base-id)
                                alias
                                coll)
-            (map #(save-or-update-record* db model %) coll)
+            (map #(save-or-update-record* db %) coll)
             (recur (rest collections))))
         base-id))))
 
-(defn save-or-update* [db model record-or-coll]
+(defn save-or-update* [db record-or-coll]
   (cond (map? record-or-coll)
-        (save-or-update-record* db model record-or-coll)
+        (save-or-update-record* db record-or-coll)
         (seq record-or-coll)
         (doseq [next record-or-coll]
-          (save-or-update-record* db model next))
+          (save-or-update-record* db next))
         :else "Error: input is neither a map or a sequence."))
 
 (defn- set-table [table m]
@@ -318,51 +363,11 @@
 
 (defn save-or-update
   ([db record-or-coll]
-     (save-or-update db nil record-or-coll))
-  ([db model record-or-coll]
-     (if (keyword? model)
-       (save-or-update db nil model record-or-coll)
-       (with-transaction db
-         #(save-or-update* db model record-or-coll))))
-  ([db model table record-or-coll]
+     (with-transaction db
+       #(save-or-update* db record-or-coll)))
+  ([db table record-or-coll]
      (if (map? record-or-coll)
-       (save-or-update db model (set-table table record-or-coll))
-       (save-or-update db model
-                       (map #(set-table table %) record-or-coll)))))
+       (save-or-update db (set-table table record-or-coll))
+       (save-or-update db (map #(set-table table %) record-or-coll)))))
 
-;; Functions for manipulating nested data structures
-
-(defn conj-in [m ks v]
-  (let [size (count (get-in m ks))]
-    (assoc-in m (conj ks size) v)))
-
-(defn remove-in [m ks v]
-  (let [coll (get-in m ks)]
-    (assoc-in m
-              ks
-              (filter #(not (= v (select-keys % (keys v)))) coll))))
-
-(defn find-in [ks v]
-  (loop [ks ks
-         result v]
-    (if (seq ks)
-      (recur (rest ks)
-             (let [next-test (first ks)]
-               (cond (map? next-test)
-                     (filter (fn [record]
-                               (= next-test
-                                  (select-keys record (keys next-test))))
-                             result)
-                     (keyword? next-test)
-                     (reduce (fn [a b]
-                               (let [next (next-test b)]
-                                 (if (or (vector? next) (list? next))
-                                   (concat a next)
-                                   (conj a next))))
-                             []
-                             result))))
-      result)))
-
-(defn find-first-in [ks v]
-  (first (find-in ks v)))
 

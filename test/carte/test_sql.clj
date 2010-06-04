@@ -120,9 +120,10 @@
         [:with :categories :versions] :=> [[one-and-many-to-many-join-query]]))
 
 (deftest test-selects-with-nested-withs
-  (are [table q result] (= (selects data-model
+  (are [table q result] (= (selects sample-data-model
                                     table
-                                    (parse-query data-model table q))
+                                    (parse-query (:model sample-data-model)
+                                                 table q))
                            [[result]])
        
        :artist [:with [:album :with :tracks]]

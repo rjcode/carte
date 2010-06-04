@@ -14,25 +14,25 @@
   (t "test creating a model"
      (t "containing a many-to-many relationship"
         (is (= fixture-model-many-to-many
-               {:category {:attrs [:id :name]
-                            :alias :categories}
-                 :page {:attrs [:id :name :current_version]
-                        :joins #{fixture-join-category}}})))
+               {:model {:category {:attrs [:id :name]
+                                   :alias :categories}
+                        :page {:attrs [:id :name :current_version]
+                               :joins #{fixture-join-category}}}})))
      (t "containing a one-to-many relationship"
         (is (= fixture-model-one-to-many
-               {:version {:attrs [:id :content]
-                           :alias :versions}
-                 :page {:attrs [:id :name :current_version]
-                        :joins #{fixture-join-version}}})))
+               {:model {:version {:attrs [:id :content]
+                                  :alias :versions}
+                        :page {:attrs [:id :name :current_version]
+                               :joins #{fixture-join-version}}}})))
      (t "containing both one and many -to-many"
         (is (= fixture-model-one-and-many-to-many
-               {:category {:attrs [:id :name]
-                            :alias :categories}
-                 :version {:attrs [:id :content]
-                           :alias :versions}
-                 :page {:attrs [:id :name :current_version]
-                        :joins #{fixture-join-category
-                                 fixture-join-version}}})))
+               {:model {:category {:attrs [:id :name]
+                                   :alias :categories}
+                        :version {:attrs [:id :content]
+                                  :alias :versions}
+                        :page {:attrs [:id :name :current_version]
+                               :joins #{fixture-join-category
+                                        fixture-join-version}}}})))
      (t "using the relation macro"
         (are [x] (= x fixture-artist-album-model)
 
@@ -61,12 +61,13 @@
               (album [:id :title]
                      (many-to-many :artist))
               (artist [:id :name])))
-        (are [x] (= x {:version {:alias :versions}
-                       :page {:attrs [:name]
-                              :joins #{{:type :one-to-many
-                                        :alias :versions
-                                        :table :version
-                                        :link :page_id}}}})
+        (are [x] (= x {:model {:version {:alias :versions}
+                               :page {:attrs [:name]
+                                      :joins #{{:type :one-to-many
+                                                :alias :versions
+                                                :table :version
+                                                :link :page_id
+                                                :cascade-delete false}}}}})
              (model (page [:name]
                           (one-to-many versions :version :page_id)))
              
