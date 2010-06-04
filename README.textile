@@ -64,10 +64,10 @@ A data model is created using the <code>model</code> macro. Below we create a si
      (model
        (track [:id :name])
        (album [:id :title]
-              (many-to-many :artist)
-	          (one-to-many :track))
+         (many-to-many :artist)
+         (one-to-many :track))
        (artist [:id :name]
-	           (many-to-many :album => :album_artist))))
+         (many-to-many :album => :album_artist))))
 </code>
 </pre>
 
@@ -77,12 +77,12 @@ This model makes a lot of assumptions about table names. If you want to be expli
 <code>
 (def data-model
      (model
-	   (track [:id :name])
-	   (album [:id :title]
-	          (many-to-many artists :artist => :album_artist :album_id :artist_id))
-              (one-to-many tracks :track :album_id))
-	   (artist [:id :name]
-               (many-to-many albums :album => :album_artist :artist_id :album_id))))
+       (track [:id :name])
+       (album [:id :title]
+         (many-to-many artists :artist => :album_artist :album_id :artist_id))
+         (one-to-many tracks :track :album_id))
+       (artist [:id :name]
+         (many-to-many albums :album => :album_artist :artist_id :album_id))))
 </code>
 </pre>
 
