@@ -66,7 +66,7 @@ A data model is created using the <code>model</code> macro. Below we create a si
        (album [:id :title]
               (many-to-many :artist)
 	          (one-to-many :track))
-	   (artist [:id :name]
+       (artist [:id :name]
 	           (many-to-many :album => :album_artist))))
 </code>
 </pre>
@@ -76,13 +76,13 @@ This model makes a lot of assumptions about table names. If you want to be expli
 <pre>
 <code>
 (def data-model
-	 (model
+     (model
 	   (track [:id :name])
 	   (album [:id :title]
 	          (many-to-many artists :artist => :album_artist :album_id :artist_id))
-		      (one-to-many tracks :track :album_id))
+              (one-to-many tracks :track :album_id))
 	   (artist [:id :name]
-		       (many-to-many albums :album => :album_artist :artist_id :album_id))))
+               (many-to-many albums :album => :album_artist :artist_id :album_id))))
 </code>
 </pre>
 
@@ -368,7 +368,7 @@ user> ($ :artist :with album-query)
 
 h2. "Updating" Data
 
-Carte is great for generating massive nested data structures. That is only half of the problem. How to we update them in a way that keeps the data consistent and also allows us to easily save the changes that we have made?
+Carte is great for generating massive nested data structures. That is only half of the problem. How do we update them in a way that keeps the data consistent and also allows us to easily save the changes that we have made?
 
 Let's see how Carte can help make this easier by adding some information to the test database. If you noticed in the example data above, the album "White Blood Cells" did not have any data associated with it. Below we will add a new track to the database and then associate that track, and the correct artists, with this album.
 
@@ -431,7 +431,7 @@ deleting record in :album_artist where ["id = ?" 31]
 </code>
 </pre>
 
-Finally there is the <code>find-in</code> function which allows you to query a nested data structure.
+Finally there is the <code>find-in</code> function which allows one to extract the data by path.
 
 <pre>
 <code>
@@ -455,21 +455,22 @@ user> (delete-all-test-data)
 h2. TODO
 
 <ol>
+	<li>Finish support for one-to-many. Implement reverse one-to-many queries i.e. make this work ($ :track :with :album). When you delete an item on the one side of a one-to-many association then you will also delete the many associated items.</li>
+	<li>Add support for many-to-one associations.</li>
+	<li>Add every kind of association to the example database and fill it with more data.</li>
+	<li>Add support for ordering, limiting and paging results.</li>
+	<li>many-to-many from artist to album implies that there is a many-to-many from album to artist. one-to-many from album to track implies that there is a many-to-one from track to album. etc. Does a model need to be explicit about this or can it just be inferred?
 	<li>Create a concat-in function that will allow you to concatenate values into an internal list.</li>
 	<li>Change the way save-or-update works so that if you add a new record it will query the record and return the value. If you update a record it will just return the record. Fix the examples above.</li>
-	<li>Finish support for one-to-many. Implement reverse one-to-many queries i.e. make this work ($ :track :with :album). When you delete an item on the one side of a one-to-many association then you will also delete the many associated items.</li>
-	<li>Add every kind of association to the example database and fill it with more data.</li>
-    <li>Add support for ordering, limiting and paging results.</li>    
 	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass in a data model in order for this to work.</li>
-	<li>Add support for many-to-one associations.</li>
 	<li>Create more functions to help with manipulating data within nested data structures.</li>
 	<li>Clean up the code and tests.</li>
 	<li>There are times when a user might want to avoid a join and perform two separate queries, provide a function that will merge the results into one data structure which may be used like any other.</li>
 	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL instead of raw SQL.</li>
-	<li>Add support Derby and PostgreSQL</li>
+	<li>Add support for Derby and PostgreSQL</li>
 	<li>Smarter Query Planning - currently there are some unnecessary queries being performed.</li>
 	<li>Think about putting the data model in the same map as the connection info in order to reduce the number of parameters that are passed around.</li>
-	<li>It would make the code much simpler to always qualify col names in queries.</li>	
+	<li>It would make the code much simpler if you always qualify column names in queries.</li>	
 </ol>
 
 h2. License
