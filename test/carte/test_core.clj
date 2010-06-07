@@ -326,7 +326,7 @@
        [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]))
 
 ;; The following tests require that you have a mysql database
-;; available on localhost. 
+;; available on localhost.
 
 (deftest test-query
   (with-test-database default-test-data

@@ -95,7 +95,7 @@
 ;; SQL Generation
 ;;;;;;;;;;;;;;;;;;;
 
-(defn- interpose-str [sep coll]
+(defn interpose-str [sep coll]
   (apply str (interpose sep coll)))
 
 (defn- create-column-name-pattern-from-sql
@@ -215,7 +215,7 @@
            (recur query-strings values (rest criteria)))
          (or-where-seq query-strings values)))))
 
-;; TODO - This code whould be much simpler if we always qualify column
+;; TODO - This code would be much simpler if we always qualify column
 ;; names. You wouldn't need to know about the table name here because
 ;; this information is included in the criteria-map.
 
@@ -289,73 +289,75 @@
   "Get the list of attributes for a specific table. If the user has requested
    a list of attributes then use that list ensuring that it contains the id
    col. If no list is requested then use the list in model if it exists."
-  [model table requested-attrs]
+  [db table requested-attrs]
   {:pre [(not (nil? table))]}
-  (if-let [attrs (table requested-attrs)]
-    (if (contains? (set attrs) :id)
-      attrs
-      (conj attrs :id))
-    (-> model table :attrs)))
+  (let [all-attrs (-> db :model table :attrs)]
+    (if-let [attrs (table requested-attrs)]
+      (if (contains? (set attrs) :id)
+        attrs
+        (cons :id attrs))
+      all-attrs)))
 
 (defn columns-sql
   "Create a comma delimited string containing the all the attributes to query.
    Each attribute will be table qualified and aliased. If there is no model
    and no attributes are requested then return *."
-  ([model table]
-     (columns-sql model table nil nil))
-  ([model table req-attrs]
-     (columns-sql model table req-attrs nil))
-  ([model table req-attrs joins]
+  ([db table]
+     (columns-sql db table nil nil))
+  ([db table req-attrs]
+     (columns-sql db table req-attrs nil))
+  ([db table req-attrs joins]
      {:pre [(not (nil? table))]}
-     (if-let [attrs (column-seq model table req-attrs)]
+     (if-let [attrs (column-seq db table req-attrs)]
        (loop [result (create-table-qualified-names table
                                                    attrs)
               joins joins]
          (if (seq joins)
            (let [{type :type many-side :table}
-                 (find-join-by model table :alias (first joins))
-                 attrs (column-seq model many-side req-attrs)]
+                 (find-join-by (:model db) table :alias (first joins))
+                 attrs (column-seq db many-side req-attrs)]
              (recur (concat result (create-table-qualified-names many-side
                                                                  attrs))
                     (rest joins)))
            result))
        ["*"])))
 
-(defn- many-to-many-join-sql
-  "Given the left table and the map that describes the join, create the
-   many-to-many join SQL string."
-  [l-table join]
-  (let [{r-table :table link :link from :from to :to} join]
-    (let [[l-table r-table link from to]
-          (map name [l-table r-table link from to])]
-      (str " LEFT JOIN " link " ON " l-table ".id = " link "." from
-           " LEFT JOIN " r-table " ON " link "." to " = " r-table ".id"))))
+(defmulti left-join-sql (fn [db & args] (-> db :connection :subprotocol)))
 
-(defn- one-to-many-join-sql
-  "Given the left table and the map that describes the join, create the
-   one-to-many join SQL string."
-  [l-table join]
+(defmethod left-join-sql :default [db lt lcol rt rcol]
+  (let [[lt lcol rt rcol] (map name [lt lcol rt rcol])]
+    (str " LEFT JOIN " rt " ON " lt "." lcol " = " rt "." rcol)))
+
+(defmulti join-sql (fn [_ _ join] (:type join)))
+
+(defmethod join-sql :many-to-many [db table join]
+  (let [{r-table :table link :link from :from to :to} join]
+    (str (left-join-sql db table :id link from)
+         (left-join-sql db link to r-table :id))))
+
+(defmethod join-sql :one-to-many [db table join]
   (let [{r-table :table link :link} join]
-    (let [[l-table r-table link] (map name [l-table r-table link])]
-      (str " LEFT JOIN " r-table
-           " ON " l-table ".id = " r-table "." link))))
+    (left-join-sql db table :id r-table link)))
+
+(defmethod join-sql :many-to-one [db table join]
+  (let [{r-table :table link :link} join]
+    (left-join-sql db table link r-table :id)))
+
+(defmethod join-sql :default [db table join] "")
 
 (defn joins-sql
   "Given a model, table and list of requested joins, create the join SQL
    string."
-  [model table requested-joins]
-  (loop [join-sql []
+  [db table requested-joins]
+  (loop [join-seq []
          joins requested-joins]
     (if (seq joins)
-      (let [join (find-join-by model table :alias (first joins))]
+      (let [join (find-join-by (:model db) table :alias (first joins))]
+        
         (recur
-         (cond (many-to-many? join)
-               (conj join-sql (many-to-many-join-sql table join))
-               (one-to-many? join)
-               (conj join-sql (one-to-many-join-sql table join))
-               :else join-sql)
+         (conj join-seq (join-sql db table join))
          (rest joins))) 
-      join-sql)))
+      join-seq)))
 
 (defn each-join
   "The joins map may have many entries. For each entry in the map, call an
@@ -380,13 +382,12 @@
    one as we start to implement more complicated queries and support more
    backends."
   [db table parsed-query]
-  [(let [model (:model db)
-         {:keys [attrs criteria joins]} parsed-query
+  [(let [{:keys [attrs criteria joins]} parsed-query
          select-part (str "SELECT " (each-join table joins ", "
-                                     #(columns-sql model %1 attrs %2))
+                                     #(columns-sql db %1 attrs %2))
                           " FROM " (name table)
                           (each-join table joins
-                           #(joins-sql model %1 %2)))
+                           #(joins-sql db %1 %2)))
          where-part (query->where-seq table criteria)
          order-by-part (create-order-by {})]
      (if where-part

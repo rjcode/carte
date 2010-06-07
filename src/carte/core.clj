@@ -8,6 +8,7 @@
 
 (ns carte.core
   (:use (carte sql model)
+        (clojure [set :only (difference)])
         (clojure.contrib [map-utils :only (deep-merge-with)])))
 
 (defn conj-in [m ks v]
@@ -228,7 +229,7 @@
   [model record]
   (let [table (-> record meta ::table)
         joins (-> model table :joins)
-        coll-names (map :alias joins)]
+        coll-names (filter #(not (nil? %)) (map :alias joins))]
     (merge {:base-record (apply dissoc record coll-names)}
            (reduce (fn [a b]
                      (if (b record)
@@ -303,11 +304,6 @@
       (doseq [next items-to-add]
         (save-or-update db next)))))
 
-(defn set-complement
-  "Return all things in set b that are not in set a"
-  [a b]
-  (filter #(not (contains? a %)) b))
-
 ;; TODO - the link column is not currently required to be in the
 ;; associated record in order for this work. If a record is updated
 ;; then it will be deleted and the new version will be saved. You
@@ -318,8 +314,8 @@
   [db join-model record alias coll]
   (let [old-list (set (-> record meta ::original alias))
         new-list (set coll)
-        items-to-delete (set-complement new-list old-list)
-        items-to-add (set-complement old-list new-list)]
+        items-to-delete (difference old-list new-list)
+        items-to-add (difference new-list old-list)]
     (do
       (doseq [next items-to-delete]
         (delete-record db next))

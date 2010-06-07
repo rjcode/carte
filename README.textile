@@ -131,7 +131,7 @@ user> (meta (first ($ :album)))
 </code>
 </pre>
 
-The queries below show various ways of selecting specific records from a single table. Note that we can select specific cols by including a vector of col names after the table. As it is now implemented, the :id is always returned because it is needed in order to be able to save or update a record. The corresponding SQL is shown above each query.
+The queries below show various ways of selecting specific records from a single table. Note that we can select specific columns by including a vector of col names after the table. As it is now implemented, the :id is always returned because it is needed in order to be able to save or update a record. The corresponding SQL is shown above each query.
 
 <pre>
 <code>
@@ -439,8 +439,8 @@ Because of the belongs-to association between album and track, when we delete an
 
 <pre>
 <code>
-user> (def r ($1 :album {:title "Magic Potion"} :with :artists))
-user> (def r (assoc r :artists []))
+user> (def r (-> ($1 :album {:title "Magic Potion"} :with :artists)
+                 (assoc :artists [])))
 user> (! r)
 user> (binding [carte.sql/*debug* true] 
         (delete-record sample-db r))
@@ -453,7 +453,7 @@ deleting record in :album where ["id = ?" 116]
 </code>
 </pre>
 
-Finally there is the <code>find-in</code> function which allows one to extract the data by path.
+Finally there is the <code>find-in</code> function which allows one to extract data by path.
 
 <pre>
 <code>
@@ -477,7 +477,7 @@ user> (delete-all-test-data)
 h2. TODO
 
 <ol>
-	<li>Finish support for one-to-many. Implement reverse one-to-many queries i.e. make this work ($ :track :with :album). When you delete an item on the one side of a one-to-many association then you will also delete the many associated items.</li>
+	<li>Finish support for one-to-many. Implement reverse one-to-many queries i.e. make this work ($ :track :with :album).</li>
 	<li>Add support for many-to-one associations.</li>
 	<li>Add every kind of association to the example database and fill it with more data.</li>
 	<li>Add support for ordering, limiting and paging results.</li>
@@ -491,7 +491,6 @@ h2. TODO
 	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL instead of raw SQL.</li>
 	<li>Add support for Derby and PostgreSQL</li>
 	<li>Smarter Query Planning - currently there are some unnecessary queries being performed.</li>
-	<li>Think about putting the data model in the same map as the connection info in order to reduce the number of parameters that are passed around.</li>
 	<li>It would make the code much simpler if you always qualify column names in queries.</li>	
 </ol>
 

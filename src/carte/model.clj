@@ -11,29 +11,30 @@
         [inflections :only (pluralize)]))
 
 (defn set-merge [& body]
-  (if (set? (first body))
-    (do
-      (set (apply concat body)))
-    (apply merge body)))
+  (let [first (first body)]
+    (cond (set? first) (set (apply concat body))
+          (keyword? first) first
+          (symbol? first) first
+          :else (apply merge body))))
 
 (defn pluralize-table [table]
   (keyword (pluralize (name table))))
 
-(defn many-to-many-link-table-spec [table-params]
-  (condp = (count table-params)
-    3 (rest table-params)
-    2 [(pluralize-table (last table-params))
-       (last table-params)]))
+(defn many-to-many-link-params [params]
+  (condp = (count params)
+    3 (rest params)
+    2 [(pluralize-table (last params))
+       (last params)]))
 
 (defn link-col [table]
   (keyword (str (name table) "_id")))
 
-(defn many-to-many-link-spec [from-table to-table link-params]
-  (condp = (count link-params)
-    3 link-params
-    2 (conj link-params
+(defn many-to-many-params [from-table to-table params]
+  (condp = (count params)
+    3 params
+    2 (conj params
             (link-col to-table))
-    1 (concat link-params
+    1 (concat params
               [(link-col from-table)
                (link-col to-table)])
     0 [(keyword
@@ -49,10 +50,10 @@
 (defmethod compile-association :many-to-many
   [table coll]
   (let [[table-params link-params] (split-with #(not (= % :=>)) coll)
-        [alias many-table] (many-to-many-link-table-spec table-params)
-        [link from to] (many-to-many-link-spec table
-                                               many-table
-                                               (rest link-params))]
+        [alias many-table] (many-to-many-link-params table-params)
+        [link from to] (many-to-many-params table
+                                          many-table
+                                          (rest link-params))]
     {many-table {:alias alias}
      table {:joins #{{:type :many-to-many
                       :table many-table
@@ -61,19 +62,19 @@
                       :from from
                       :to to}}}}))
 
-(defn one-to-one-link-table-spec [from-table link-params]
-  (condp = (count link-params)
-    4 (rest link-params)
-    3 (cons (pluralize-table (second link-params))
-            (rest link-params))
-    2 [(pluralize-table (last link-params))
-       (last link-params)
-       (link-col from-table)]))
+(defn one-to-many-params [from-table params]
+  (let [params (rest params)]
+    (condp = (count params)
+      3 params
+      2 (cons (pluralize-table (first params))
+              params)
+      1 [(pluralize-table (first params))
+          (first params)
+          (link-col from-table)])))
 
 (defmethod compile-association :one-to-many
   [table coll]
-  (let [[alias many-table link] (one-to-one-link-table-spec table
-                                                            coll)]
+  (let [[alias many-table link] (one-to-many-params table coll)]
     {many-table {:alias alias}
      table {:joins #{{:type :one-to-many
                       :table many-table
@@ -81,26 +82,40 @@
                       :link link
                       :cascade-delete false}}}}))
 
-(defn belongs-to-link-table-spec [table link-params]
-  (condp = (count link-params)
-    4 (rest link-params)
-    3 (conj (rest link-params)
-            (link-col (second link-params)))
-    2 [(last link-params)
+(defn belongs-to-params [table params]
+  (condp = (count params)
+    4 (rest params)
+    3 (conj (rest params)
+            (link-col (second params)))
+    2 [(last params)
        (pluralize-table table)
-       (link-col (last link-params))]))
+       (link-col (last params))]))
 
-;; TODO - test this kind of association
+;; TODO - test this type of association
 
 (defmethod compile-association :belongs-to
   [table coll]
-  (let [[one-table alias link] (belongs-to-link-table-spec table coll)]
+  (let [[one-table alias link] (belongs-to-params table coll)]
     {table {:alias alias}
      one-table {:joins #{{:type :one-to-many
                           :table table
                           :alias alias
                           :link link
                           :cascade-delete true}}}}))
+
+(defn many-to-one-params [table params]
+  (condp = (count params)
+    3 (rest params)
+    2 [(second params)
+       (link-col (second params))]))
+
+(defmethod compile-association :many-to-one
+  [table coll]
+  (let [[one-table link] (many-to-one-params table coll)]
+    {table {:joins #{{:type :many-to-one
+                      :table one-table
+                      :alias one-table
+                      :link link}}}}))
 
 (defn table* [table & config]
   (loop [result {table
@@ -135,10 +150,4 @@
   (first
    (filter #(= (key %) value)
            (-> model base-table :joins))))
-
-(defn many-to-many? [join]
-  (= (:type join) :many-to-many))
-
-(defn one-to-many? [join]
-  (= (:type join) :one-to-many))
 

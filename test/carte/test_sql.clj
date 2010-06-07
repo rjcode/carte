@@ -63,25 +63,35 @@
 (deftest test-columns-sql
   (is (= (columns-sql nil :page) ["*"]))
   (is (= (columns-sql {} :page) ["*"]))
-  (are [model q j _ attrs] (= (columns-sql model :page q j)
-                              (attr-list attrs)))
+  (are [model table query joins _ attrs]
+       (= (interpose-str ", "
+                         (columns-sql model table query joins))
+          (attr-list attrs))
 
-  fixture-model-one-and-many-to-many
-  nil
-  {:page [:categories :versions]} :=> [page-table
-                                       category-table
-                                       version-table]
-  
-  
-  fixture-model-many-to-many
-  {:page [:name]}
-  {:page [:categories]}           :=> [[:page [:name :id]]
-                                       category-table]
-  
-  fixture-model-many-to-many
-  {:page [:name] :category [:name]}
-  {:page [:categories]}           :=> [[:page [:name :id]]
-                                       [:category [:name :id]]])
+       fixture-model-one-and-many-to-many
+       :page
+       nil
+       [:categories :versions] :=> [page-table
+                                    category-table
+                                    version-table]
+    
+       fixture-model-many-to-many
+       :page
+       {:page [:name]}
+       [:categories]           :=> [[:page [:id :name]]
+                                    category-table]
+
+       fixture-model-many-to-many
+       :page
+       {:page [:name] :category [:name]}
+       [:categories]           :=> [[:page [:id :name]]
+                                    [:category [:id :name]]]
+
+       sample-data-model
+       :album
+       {:album [:title]}
+       [:genre]                :=> [[:album [:id :title]]
+                                    [:genre [:id :name]]]))
 
 (deftest test-selects
   (are [model q _ result] (= (selects model
@@ -109,15 +119,16 @@
        [{:id 1} :with :categories]    :=> [[(str many-to-many-join-query
                                                  " WHERE page.id = ?") 1]]
        fixture-model-many-to-many
-       [{:id 1 :name "brenton"}
-        :with :categories]            :=> [[(str many-to-many-join-query
-                                                 " WHERE page.id = ?"
-                                                 " AND page.name = ?")
-                                            1 "brenton"]]
-        fixture-model-one-to-many
-        [:with :versions]             :=> [[one-to-many-join-query]]
-        fixture-model-one-and-many-to-many
-        [:with :categories :versions] :=> [[one-and-many-to-many-join-query]]))
+       [{:id 1 :name "brenton"} :with :categories] :=>
+       [[(str many-to-many-join-query
+              " WHERE page.id = ?"
+              " AND page.name = ?")
+         1 "brenton"]]
+       
+       fixture-model-one-to-many
+       [:with :versions]             :=> [[one-to-many-join-query]]
+       fixture-model-one-and-many-to-many
+       [:with :categories :versions] :=> [[one-and-many-to-many-join-query]]))
 
 (deftest test-selects-with-nested-withs
   (are [table q result] (= (selects sample-data-model
@@ -134,5 +145,15 @@
             " FROM artist"
             " LEFT JOIN album_artist ON artist.id = album_artist.artist_id"
             " LEFT JOIN album ON album_artist.album_id = album.id"
-            " LEFT JOIN track ON album.id = track.album_id")))
+            " LEFT JOIN track ON album.id = track.album_id")
+
+       :album [:with :genre]
+       (str "SELECT "
+            (attr-list [[:album [:id :title]]
+                        [:genre [:id :name]]])
+            " FROM album"
+            " LEFT JOIN genre ON album.genre_id = genre.id")
+
+
+       ))
 
