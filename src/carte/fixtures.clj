@@ -97,13 +97,26 @@
             (many-to-many :category)
             (one-to-many :version))))
 
+(defmulti join-fixture (fn [type _ _] type))
+
+(defmethod join-fixture :many-to-many [type from to]
+  {:type type
+   :table to
+   :alias (pluralize-table to)
+   :link (keyword (str (name from) "_" (name to)))
+   :from (keyword (str (name from) "_id"))
+   :to (keyword (str (name to) "_id"))})
+
 (def fixture-join-category
+     (join-fixture :many-to-many :page :category))
+
+(def fixture-join-page
      {:type :many-to-many
-      :table :category
-      :alias :categories
+      :table :page
+      :alias :pages
       :link :page_category
-      :from :page_id
-      :to :category_id})
+      :from :category_id
+      :to :page_id})
 
 (def fixture-join-version
      {:type :one-to-many
@@ -114,14 +127,16 @@
 
 (def fixture-artist-album-model
      {:model {:album {:attrs [:id :title]
-                      :joins #{{:type :many-to-many
-                                :table :artist
-                                :alias :artists
-                                :link :album_artist
-                                :from :album_id
-                                :to :artist_id}}}
+                      :alias :albums
+                      :joins #{(join-fixture :many-to-many :album :artist)}}
               :artist {:attrs [:id :name]
-                       :alias :artists}}})
+                       :alias :artists
+                       :joins #{{:type :many-to-many
+                                 :table :album
+                                 :alias :albums
+                                 :link :album_artist
+                                 :from :artist_id
+                                 :to :album_id}}}}})
 
 ;; In order for the following functions to work, you will need to
 ;; create the database carte_test_db.
@@ -144,8 +159,7 @@
       (album [:id :title]
              (many-to-many :artist)
              (many-to-one :genre :genre_id))
-      (artist [:id :name]
-              (many-to-many :album => :album_artist))))
+      (artist [:id :name])))
 
 (def sample-db (merge db sample-data-model))
 
@@ -231,6 +245,10 @@
                   ($1 :track {:name (first tracks)})))
       (recur album (rest tracks)))))
 
+(defn set-genre [album genre]
+  (! (-> ($1 :album {:title album} :with :genre)
+         (assoc :genre ($1 :genre {:name genre})))))
+
 (defn default-test-data []
   (do
     (! :album (map #(hash-map :title %) albums))
@@ -246,7 +264,12 @@
 
     (add-tracks-to-album "Magic Potion" magic-potion-tracks)
     (add-tracks-to-album "Elephant" elephant-tracks)
-    (add-tracks-to-album "Broken Boy Soldiers" broken-boy-soldiers-tracks)))
+    (add-tracks-to-album "Broken Boy Soldiers" broken-boy-soldiers-tracks)
+
+    (set-genre "Magic Potion" "Blues/Rock")
+    (set-genre "Thickfreakness" "Blues/Rock")
+    (set-genre "Elephant" "Rock")
+    (set-genre "Broken Boy Soldiers" "Rock")))
 
 (defn ensure-test-database
   "Ensure that the database exists and contains the tables that you will

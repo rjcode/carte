@@ -10,11 +10,20 @@
   (:use (clojure.contrib [map-utils :only (deep-merge-with)])
         [inflections :only (pluralize)]))
 
-(defn set-merge [& body]
-  (let [first (first body)]
-    (cond (set? first) (set (apply concat body))
-          (keyword? first) first
-          (symbol? first) first
+(defn merge-join-sets [existing-set new-set]
+  (let [new-join (first new-set)
+        type (:type new-join)
+        table (:table new-join)]
+    (set (concat (filter #(not (and (= (:type %) type)
+                                    (= (:table %) table))) existing-set)
+                 new-set))))
+
+(defn association-merge [& body]
+  (let [first (first body)
+        last (last body)]
+    (cond (set? first) (apply merge-join-sets body)
+          (keyword? first) last
+          (symbol? first) last
           :else (apply merge body))))
 
 (defn pluralize-table [table]
@@ -47,20 +56,35 @@
 (defmethod compile-association :default [a b]
   {})
 
+(defn many-to-many-association [table alias many-table link from to]
+  {many-table {:alias alias}
+   table {:joins #{{:type :many-to-many
+                    :table many-table
+                    :alias alias
+                    :link link
+                    :from from
+                    :to to}}}})
+
 (defmethod compile-association :many-to-many
   [table coll]
   (let [[table-params link-params] (split-with #(not (= % :=>)) coll)
         [alias many-table] (many-to-many-link-params table-params)
         [link from to] (many-to-many-params table
-                                          many-table
-                                          (rest link-params))]
-    {many-table {:alias alias}
-     table {:joins #{{:type :many-to-many
-                      :table many-table
-                      :alias alias
-                      :link link
-                      :from from
-                      :to to}}}}))
+                                            many-table
+                                            (rest link-params))]
+    (deep-merge-with association-merge
+                     (many-to-many-association table
+                                               alias
+                                               many-table
+                                               link
+                                               from
+                                               to)
+                     (many-to-many-association many-table
+                                               (pluralize-table table)
+                                               table
+                                               link
+                                               to
+                                               from))))
 
 (defn one-to-many-params [from-table params]
   (let [params (rest params)]
@@ -69,18 +93,30 @@
       2 (cons (pluralize-table (first params))
               params)
       1 [(pluralize-table (first params))
-          (first params)
-          (link-col from-table)])))
+         (first params)
+         (link-col from-table)])))
+
+(defn one-to-many-association [table many-table alias link]
+  {many-table {:alias alias}
+   table {:joins #{{:type :one-to-many
+                    :table many-table
+                    :alias alias
+                    :link link
+                    :cascade-delete false}}}})
+
+(defn many-to-one-association [table one-table link]
+  {one-table {:alias one-table}
+   table {:joins #{{:type :many-to-one
+                    :table one-table
+                    :alias one-table
+                    :link link}}}})
 
 (defmethod compile-association :one-to-many
   [table coll]
   (let [[alias many-table link] (one-to-many-params table coll)]
-    {many-table {:alias alias}
-     table {:joins #{{:type :one-to-many
-                      :table many-table
-                      :alias alias
-                      :link link
-                      :cascade-delete false}}}}))
+    (deep-merge-with association-merge
+                     (one-to-many-association table many-table alias link)
+                     (many-to-one-association many-table table link))))
 
 (defn belongs-to-params [table params]
   (condp = (count params)
@@ -96,12 +132,14 @@
 (defmethod compile-association :belongs-to
   [table coll]
   (let [[one-table alias link] (belongs-to-params table coll)]
-    {table {:alias alias}
-     one-table {:joins #{{:type :one-to-many
-                          :table table
-                          :alias alias
-                          :link link
-                          :cascade-delete true}}}}))
+    (deep-merge-with association-merge
+                     {table {:alias alias}
+                      one-table {:joins #{{:type :one-to-many
+                                           :table table
+                                           :alias alias
+                                           :link link
+                                           :cascade-delete true}}}}
+                     (many-to-one-association table one-table link))))
 
 (defn many-to-one-params [table params]
   (condp = (count params)
@@ -112,17 +150,19 @@
 (defmethod compile-association :many-to-one
   [table coll]
   (let [[one-table link] (many-to-one-params table coll)]
-    {table {:joins #{{:type :many-to-one
-                      :table one-table
-                      :alias one-table
-                      :link link}}}}))
+    (deep-merge-with association-merge
+                     (many-to-one-association table one-table link)
+                     (one-to-many-association one-table
+                                              table
+                                              (pluralize-table table)
+                                              link))))
 
 (defn table* [table & config]
   (loop [result {table
                  {:attrs (first config)}}
          associations (rest config)]
     (if (seq associations)
-      (recur (deep-merge-with set-merge
+      (recur (deep-merge-with association-merge
                               result
                               (compile-association table
                                                    (first associations)))
@@ -137,7 +177,7 @@
     `(table* ~table ~@new-args)))
 
 (defn model* [& body]
-  {:model (apply deep-merge-with set-merge body)})
+  {:model (apply deep-merge-with association-merge body)})
 
 (defmacro model [& body]
   (let [new-body (map #(apply list 'table %) body)]

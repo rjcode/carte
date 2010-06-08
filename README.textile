@@ -88,7 +88,7 @@ This model makes a lot of assumptions about table names. If you want to be expli
 
 There is also a <code>one-to-many</code> association that is available. <code>belongs-to</code> in the example above will create a one-to-many association between albums and tracks. When an album is deleted then all associated tracks will be deleted. If you were to use <code>one-to-many</code> in the above model to create an association between album and tracks then, if there is constraint on the foreign key, you would not be allowed to delete an album if it had associated tracks.
 
-The API for Carte provides the functions <code>save-or-update</code>, <code>query</code> and <code>query-1</code> which all take both the database configuration and the model as parameters. In the example below we create some helper functions to make things simpler. In the future I may combine the model and the database configuration into one map.
+The API for Carte provides the functions <code>save-or-update</code>, <code>fetch</code> and <code>fetch-one</code>. The fist argument to each of these functions is a single map containing the database configuration and the model. In the example below, we merge the model and db config together and then create a few helper functions which will simplify the examples below.
 
 <pre>
 <code>
@@ -477,6 +477,7 @@ user> (delete-all-test-data)
 h2. TODO
 
 <ol>
+	<li>You are putting too much into the metadata. You only need to have the values the current records fields and then the ids of the nested elements.</li>
 	<li>Finish support for one-to-many. Implement reverse one-to-many queries i.e. make this work ($ :track :with :album).</li>
 	<li>Add support for many-to-one associations.</li>
 	<li>Add every kind of association to the example database and fill it with more data.</li>
@@ -485,7 +486,7 @@ h2. TODO
 	<li>Create a concat-in function that will allow you to concatenate values into an internal list.</li>
 	<li>Change the way save-or-update works so that if you add a new record it will query the record and return the value. If you update a record it will just return the record. Fix the examples above.</li>
 	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass in a data model in order for this to work.</li>
-	<li>Create more functions to help with manipulating data within nested data structures.</li>
+	<li>Create more functions to help with manipulating data within nested data structures. Look at clojure.walk.</li>
 	<li>Clean up the code and tests.</li>
 	<li>There are times when a user might want to avoid a join and perform two separate queries, provide a function that will merge the results into one data structure which may be used like any other.</li>
 	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL instead of raw SQL.</li>

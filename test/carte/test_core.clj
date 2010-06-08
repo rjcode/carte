@@ -52,11 +52,12 @@
                                                    :album [:tracks]}}))
 
 (deftest test-dequalify-joined-map
-  (t "test dequalify joind map"
-     (are [x y z] (= (dequalify-joined-map (:model fixture-model-many-to-many)
-                                           x
-                                           y)
-                     z)
+  (t "test dequalify joined map"
+     (are [table flat-map expected]
+          (= (dequalify-joined-map (:model fixture-model-many-to-many)
+                                   table
+                                   flat-map)
+             expected)
 
         :page
         {:page_id 1 :page_name "one" :category_id 2}
@@ -166,6 +167,21 @@
          :tracks [{:id 3 :name "C"}
                   {:id 4 :name "D"}]}]
 
+       :album
+       {:album [:artists :genre]}
+       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+         :genre_id 1 :genre_name "C"}
+        {:artist_id 2 :artist_name "D" :album_id 3 :album_title "E"
+         :genre_id 2 :genre_name "F"}]
+       [{:id 2
+         :title "B"
+         :artists [{:id 1 :name "A"}]
+         :genre {:id 1 :name "C"}}
+        {:id 3
+         :title "E"
+         :artists [{:id 2 :name "D"}]
+         :genre {:id 2 :name "F"}}]
+
        :artist
        {:artist [:albums]}
        [{:artist_id 1 :artist_name "A" :album_id 3 :album_title "C"}
@@ -240,23 +256,17 @@
                  [{:id 1 :name "one"
                    :categories [{:id 1 :name "c1"}]}]))))))
 
+(defn meta-rec [table rec]
+  (with-meta rec {table-key table orig-key rec}))
+
 (deftest test-dismantle-record
-  (let [result
-        (dismantle-record
-         (:model fixture-model-many-to-many)
-         (with-meta
-           {:id 1 :name "a" :current_version 2
-            :categories [(with-meta {:id 1 :name "a"}
-                                      {table-key :category
-                                       orig-key
-                                       {:id 1 :name "a"}})
-                                    (with-meta {:id 2 :name "b"}
-                                      {table-key :category
-                                       orig-key
-                                       {:id 2 :name "b"}})]}
-           {table-key :page
-            orig-key
-            {:id 1 :name "a" :current_version 2}}))]
+  (let [categories [(meta-rec :category {:id 1 :name "a"})
+                    (meta-rec :category {:id 2 :name "b"})]
+        result (dismantle-record
+                (:model fixture-model-many-to-many)
+                (meta-rec :page
+                          {:id 1 :name "a" :current_version 2
+                           :categories categories}))]
     (is (= result
            {:base-record {:id 1 :name "a" :current_version 2}
             :categories [{:id 1 :name "a"}
@@ -264,11 +274,27 @@
     (is (= (-> result :base-record meta)
            {table-key :page
             orig-key
-            {:id 1 :name "a" :current_version 2}}))
+            {:id 1 :name "a" :current_version 2 :categories categories}}))
     (is (= (-> result :categories first meta)
            {table-key :category
             orig-key
-            {:id 1 :name "a"}}))))
+            {:id 1 :name "a"}})))
+  (let [result (dismantle-record
+                (:model sample-data-model)
+                (meta-rec :album
+                          {:id 1 :title "A"
+                           :genre (meta-rec :genre {:id 2 :name "B"})}))]
+    (is (= result
+           {:base-record {:id 1 :title "A"}
+            :genre {:id 2 :name "B"}})))
+  (let [result (dismantle-record
+                (:model sample-data-model)
+                (meta-rec :album
+                          {:id 1 :title "A"
+                           :genre nil}))]
+    (is (= result
+           {:base-record {:id 1 :title "A"}
+            :genre nil}))))
 
 (deftest test-dirty?
   (t "test dirty?"
@@ -301,19 +327,22 @@
   (are [query _ expected]
        (= (find-in query
                    [{:id 4 
-                     :title "Magic Potion" 
+                     :title "Magic Potion"
+                     :genre {:id 1 :name "Rock"}
                      :artists [{:id 3 :name "The Black Keys"}]} 
                     {:id 5 
                      :title "Thickfreakness"
+                     :genre {:id 1 :name "Rock"}
                      :artists [{:id 3 :name "The Black Keys"}]} 
                     {:id 6 
-                     :title "Let's Dance" 
+                     :title "Let's Dance"
+                     :genre {:id 1 :name "Weird"}
                      :artists [{:id 4 :name "David Bowie"}]}])
           expected)
-       [:title] :=> ["Magic Potion" "Thickfreakness" "Let's Dance"
-                                          ]
+       [:title] :=> ["Magic Potion" "Thickfreakness" "Let's Dance"]
        [{:title "Magic Potion"}] :=> [{:id 4 
-                                       :title "Magic Potion" 
+                                       :title "Magic Potion"
+                                       :genre {:id 1 :name "Rock"}
                                        :artists
                                        [{:id 3 :name "The Black Keys"}]}]
        
@@ -323,7 +352,9 @@
 
        [{:title "Let's Dance"} :artists :name] :=> ["David Bowie"]
 
-       [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]))
+       [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]
+
+       [:genre :name] ["Rock" "Rock" "Weird"]))
 
 ;; The following tests require that you have a mysql database
 ;; available on localhost.
@@ -426,7 +457,25 @@
 
          ($ :artist :with [:album :with [:track {:name "Call*"}]])         
          #(set (map :name %))
-         the-raconteurs)
+         the-raconteurs
+
+         ($ :album :with :genre)
+         #(-> % first :genre :name)
+         "Blues/Rock"
+
+         ($ :album :with [:genre {:name "Rock"}])
+         #(set (map :title %))
+         #{"Elephant" "Broken Boy Soldiers"}
+
+         ($ :track {:name "*You*"} :with :album)
+         #(set (distinct (find-in [:album :title] %)))
+         #{"Magic Potion" "Elephant"}
+
+         ($ :genre :with :albums)
+         #(set (find-in [:albums :title] %))
+         #{"Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"}
+
+         )
     
      (let [result ($1 :album {:title "Magic Potion"})]
        (is (= (:title result) "Magic Potion"))
@@ -437,4 +486,13 @@
            r2 ($ :album :with q)]
        (is (= (set (map :name r1)) the-white-stripes))
        (is (= (set (map :title r2)) #{"Elephant" "Broken Boy Soldiers"})))))
+
+(comment
+  
+  ;; Order by syntax
+  ($ :album :order-by :title :id)
+  ($ :album [:title] {:title "Y*"} :order-by :title [:id :desc] :with :genre)
+  ($ :album :order-by :title :with [:artist :order-by :name])
+
+  )
 

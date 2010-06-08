@@ -153,15 +153,24 @@
 
 (declare single-record-flat->nested)
 
+(defn- nil-assoc [type]
+  (condp = type
+    :many-to-one nil
+    :many-to-many []
+    :one-to-many []))
+
+(defn- associated-record [type rec]
+  (cond (nil? (:id rec)) (nil-assoc type)
+        (= :many-to-one type) rec
+        :else [rec]))
+
 (defn add-association [model joins join-model nested-rec flat-rec]
-  (let [{assoc-table :table alias :alias} join-model
+  (let [{type :type assoc-table :table alias :alias} join-model
         assoc-rec (single-record-flat->nested model
                                               assoc-table
                                               joins
                                               flat-rec)]
-    (assoc nested-rec alias (if (nil? (:id assoc-rec))
-                              []
-                              [assoc-rec]))))
+    (assoc nested-rec alias (associated-record type assoc-rec))))
 
 (defn single-record-flat->nested [model table joins flat-rec]
   (loop [nested-rec (dequalify-joined-map model table flat-rec)
@@ -220,8 +229,6 @@
 
 (declare save-or-update)
 
-;; TODO - this should not return collections that are nil
-
 (defn dismantle-record
   "Return a map containing :base-record and each of the collections that
    were in the base record. The value of base record will be the passed
@@ -229,14 +236,14 @@
   [model record]
   (let [table (-> record meta ::table)
         joins (-> model table :joins)
-        coll-names (filter #(not (nil? %)) (map :alias joins))]
-    (merge {:base-record (apply dissoc record coll-names)}
+        association-names (filter #(not (nil? %)) (map :alias joins))]
+    (merge {:base-record (apply dissoc record association-names)}
            (reduce (fn [a b]
-                     (if (b record)
+                     (if (contains? record b)
                        (assoc a b (b record))
                        a))
                    {}
-                   coll-names))))
+                   association-names))))
 
 ;; TODO - You should also consider a record to be dirty if it does not
 ;; have an id.
@@ -322,28 +329,41 @@
       (doseq [next items-to-add]
         (save-or-update db (assoc next (:link join-model) (:id record)))))))
 
+(defmethod save-associations :many-to-one
+  [db join-model record alias new-value]
+  (let [old-value (-> record meta ::original alias)
+        link (:link join-model)]
+    (if (not (= old-value new-value))
+      (save-or-update db
+                      (cond (nil? new-value) (assoc record link nil)
+                            (or (nil? old-value)
+                                (not (= (:id new-value) (:id old-value))))
+                            (assoc record link (:id new-value)))))))
+
 (defmethod save-associations :default
   [_ _ _ _ _]
   nil)
+
+(declare save-or-update*)
 
 (defn save-or-update-record* [db record]
   (let [model (:model db)
         {record :base-record :as m} (dismantle-record model record)
         base-table (-> record meta ::table)
         base-id (save-and-get-id db record)]
-    (loop [collections (dissoc m :base-record)]
-      (if (seq collections)
-        (let [next (first collections)
+    (loop [associations (dissoc m :base-record)]
+      (if (seq associations)
+        (let [next (first associations)
               alias (key next)
-              coll (val next)]
+              assoc-values (val next)]
           (do
             (save-associations db
                                (find-join-by model base-table :alias alias)
                                (assoc record :id base-id)
                                alias
-                               coll)
-            (map #(save-or-update-record* db %) coll)
-            (recur (rest collections))))
+                               assoc-values)
+            (save-or-update* db assoc-values)
+            (recur (rest associations))))
         base-id))))
 
 (defn save-or-update* [db record-or-coll]

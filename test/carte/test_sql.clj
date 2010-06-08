@@ -152,8 +152,5 @@
             (attr-list [[:album [:id :title]]
                         [:genre [:id :name]]])
             " FROM album"
-            " LEFT JOIN genre ON album.genre_id = genre.id")
-
-
-       ))
+            " LEFT JOIN genre ON album.genre_id = genre.id")))
 
