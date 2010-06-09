@@ -92,8 +92,9 @@
             []
             selects)))
 
+;;
 ;; SQL Generation
-;;;;;;;;;;;;;;;;;;;
+;;
 
 (defn interpose-str [sep coll]
   (apply str (interpose sep coll)))
@@ -254,21 +255,35 @@
                  (rest query)))
         (merge-where-seqs result)))))
 
-;; TODO - Get this working and test it. This is left over from a
-;; previous implementation. We don't have a params map in the current
-;; implementation.
-(defn- create-order-by [params]
-  (let [sort-vec (:sort params)
-        order-by-str (if (seq sort-vec)
-                       (reduce
-                        (fn [a b]
-                          (if (= 1 (count b))
-                            (str a (first b))
-                            (str a " " (to-string (last b)) " "
-                                 (to-string (first b)))))
-                        ""
-                        (interpose [","] (partition 2 sort-vec))) nil)]
-    (if order-by-str (str " ORDER BY" order-by-str) "")))
+;; TODO - You are here.
+(defn- criteria->order-seq [table columns]
+  (loop [result []
+         columns (partition 2 columns)]
+    (if (seq columns)
+      (recur (conj result (let [[col dir] (first columns)]
+                            (str (if table
+                                   (str (name table) "."))
+                                 (name col)
+                                 (if (= dir :desc) " DESC"))))
+             (rest columns))
+      result)))
+
+(defn query->order-by [table query]
+  {:pre [(or (= (count query) 2)
+             (not (nil? table)))]}
+  (let [order-seq (if (nil? table)
+                    (criteria->order-seq table (first (rest query)))
+                    (loop [result []
+                           query (partition 2 query)]
+                      (if (seq query)
+                        (let [[table columns] (first query)]
+                          (recur (concat result
+                                         (criteria->order-seq table columns))
+                                 (rest query)))
+                        result)))]
+    (if (empty? order-seq)
+      ""
+      (str " ORDER BY " (interpose-str ", " order-seq)))))
 
 (defn- create-table-qualified-names
   "Given a table and a list of attributes, return a list of qualified names
@@ -382,14 +397,14 @@
    one as we start to implement more complicated queries and support more
    backends."
   [db table parsed-query]
-  [(let [{:keys [attrs criteria joins]} parsed-query
+  [(let [{:keys [attrs criteria joins order-by]} parsed-query
          select-part (str "SELECT " (each-join table joins ", "
                                      #(columns-sql db %1 attrs %2))
                           " FROM " (name table)
                           (each-join table joins
                            #(joins-sql db %1 %2)))
          where-part (query->where-seq table criteria)
-         order-by-part (create-order-by {})]
+         order-by-part (query->order-by table order-by)]
      (if where-part
        (vec (cons (str select-part " WHERE " (first where-part) order-by-part)
                   (rest where-part)))

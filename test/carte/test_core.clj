@@ -22,7 +22,9 @@
        [:with [:version [:id] {:name "a"}]] :=> {:attrs {:version [:id]}
                                                  :criteria
                                                  {:version [{:name "a"}]}
-                                                 :joins {:page [:versions]}}))
+                                                 :joins {:page [:versions]}}
+       [:with [:version :order-by :name]] :=> {:order-by [:version [:name :asc]]
+                                               :joins {:page [:versions]}}))
 
 (deftest test-parse-query
   (are [x _ y] (= (parse-query (:model fixture-model-one-to-many)
@@ -41,7 +43,17 @@
        [:with [:version]]        :=> {:joins {:page [:versions]}}
        [[:id] {:name "a"} :with :versions] :=> {:attrs {:page [:id]}
                                                 :criteria {:page [{:name "a"}]}
-                                                :joins {:page [:versions]}})
+                                                :joins {:page [:versions]}}
+       
+       [:order-by :name] :=> {:order-by [:page [:name :asc]]}
+       [:order-by :name [:id :desc]] :=> {:order-by [:page
+                                                     [:name :asc :id :desc]]}
+       [:order-by :name [:id :desc] :with :versions] :=>
+       {:order-by [:page [:name :asc :id :desc]]
+        :joins {:page [:versions]}}
+       [:order-by :name [:id :desc] :with [:version :order-by :id]] :=>
+       {:order-by [:page [:name :asc :id :desc] :version [:id :asc]]
+        :joins {:page [:versions]}})
   
   (are [table query _ expected] (= (parse-query (:model sample-data-model)
                                                 table
@@ -475,7 +487,10 @@
          #(set (find-in [:albums :title] %))
          #{"Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"}
 
-         )
+         ($ :album :order-by :title)
+         #(map :title %)
+         ["Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"
+          "White Blook Cells"])
     
      (let [result ($1 :album {:title "Magic Potion"})]
        (is (= (:title result) "Magic Potion"))

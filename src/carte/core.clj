@@ -45,7 +45,6 @@
 (defn find-first-in [ks v]
   (first (find-in ks v)))
 
-
 (defn parse-query-part [table q]
   (loop [q q
          result {}]
@@ -85,12 +84,35 @@
                (rest joins)))
       result)))
 
+(defn merge-order-vecs [v1 v2]
+  (if (= (first v1) (first v2))
+    [(first v1) (concat (last v1) (last v2))]
+    (concat v1 v2)))
+
+(defn parse-order-by-part [table query]
+  (loop [result {}
+         query (rest query)]
+    (if (seq query)
+      (let [next (first query)]
+        (recur (deep-merge-with merge-order-vecs
+                                result
+                                {:order-by
+                                 [table (if (keyword? next)
+                                          [next :asc]
+                                          (let [[col dir] next]
+                                            [col dir]))]})
+               (rest query)))
+      result)))
+
 (defn parse-query
   "Create a map with keys :attrs :criteria and :joins"
   [model table q]
-  (let [[query-part join-part] (split-with #(not (= % :with)) q)]
-    (merge (parse-query-part table query-part)
-           (parse-join-part model table join-part))))
+  (let [[query-part join-part] (split-with #(not (= % :with)) q)
+        [query-part order-part] (split-with #(not (= % :order-by)) query-part)]
+    (deep-merge-with concat
+                     (parse-query-part table query-part)
+                     (parse-order-by-part table order-part)
+                     (parse-join-part model table join-part))))
 
 (defn- m-dissoc [m & keys]
   (apply dissoc (into {} m) keys))

@@ -11,13 +11,14 @@
         (carte core sql fixtures)))
 
 (deftest test-key-value->where-seq
-  (are [a b _ result] (= (key-value->where-seq a b) result) 
+  (are [a b _ result] (= (key-value->where-seq a b) result)
        :id 1        :=> ["id = ?" 1]
        :name "John" :=> ["name = ?" "John"]
        :name nil    :=> ["name IS NULL" nil]
        :name "Joh*" :=> ["name like ?" "Joh*"]
        :where ["name = ?" "John"] :=> ["name = ?" "John"])
-  (are [a b _ result] (= (key-value->where-seq :person a b) result) 
+  
+  (are [a b _ result] (= (key-value->where-seq :person a b) result)
        :id 1        :=> ["person.id = ?" 1]
        :name "John" :=> ["person.name = ?" "John"]
        :name nil    :=> ["person.name IS NULL" nil]
@@ -53,12 +54,31 @@
 (deftest test-query->where-seq
   (are [x _ y] (= (query->where-seq nil x) y)
        {:page [{:name "a"}]} :=> ["name = ?" "a"])
+  
   (are [x _ y] (= (query->where-seq :page x) y)
        {:page [{:name "a"}]} :=> ["page.name = ?" "a"]
        {:page [{:name "a"}] :version [{:id 7}]} :=>
        ["page.name = ? AND version.id = ?" "a" 7]
        {:version [{:id 7}] :page [{:name "a"}]} :=>
        ["version.id = ? AND page.name = ?" 7 "a"]))
+
+(deftest test-query->order-by
+  (are [query _ expected] (= (query->order-by nil query) expected)
+
+       [:artist [:name :asc]] :=> " ORDER BY name"
+       [:artist [:name :desc]] :=> " ORDER BY name DESC"
+       [:artist [:name :asc :age :desc]] :=> " ORDER BY name, age DESC")
+  
+  (are [query _ expected] (= (query->order-by :artist query) expected)
+
+       [:artist [:name :asc]] :=> " ORDER BY artist.name"
+       [:artist [:name :desc]] :=> " ORDER BY artist.name DESC"
+       [:artist [:name :asc :age :desc]] :=>
+       " ORDER BY artist.name, artist.age DESC"
+       [:artist [:name :asc] :album [:title :asc]] :=>
+       " ORDER BY artist.name, album.title"
+       [:artist [:name :asc :id :desc] :album [:title :desc]] :=>
+       " ORDER BY artist.name, artist.id DESC, album.title DESC"))
 
 (deftest test-columns-sql
   (is (= (columns-sql nil :page) ["*"]))
@@ -128,7 +148,15 @@
        fixture-model-one-to-many
        [:with :versions]             :=> [[one-to-many-join-query]]
        fixture-model-one-and-many-to-many
-       [:with :categories :versions] :=> [[one-and-many-to-many-join-query]]))
+       [:with :categories :versions] :=> [[one-and-many-to-many-join-query]]
+
+       nil
+       [:order-by :name] :=>
+       [[(str (select-from "*") " ORDER BY page.name")]]
+
+       nil
+       [:order-by :name :with [:version :order-by :id]] :=>
+       [[(str (select-from "*") " ORDER BY page.name, version.id")]]))
 
 (deftest test-selects-with-nested-withs
   (are [table q result] (= (selects sample-data-model
