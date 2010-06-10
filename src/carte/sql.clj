@@ -29,8 +29,7 @@
   "Execute a no argument function within a transaction."
   [db f]
   (sql/with-connection (:connection db)
-    (sql/transaction (f)))
-  nil)
+    (sql/transaction (f))))
 
 (defn sql-drop-table
   "Drop the table from the database."

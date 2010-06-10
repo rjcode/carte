@@ -190,7 +190,12 @@
     (doseq [next ($ :genre)]
       (delete-record sample-db next))
     (doseq [next ($ :artist)]
-      (delete-record sample-db next))))
+      (delete-record sample-db next)))
+  (let [tracks ($ :track)]
+    (if (seq tracks)
+      (do (println "!Warning! tracks were not automatically deleted.")
+          (doseq [next tracks]
+            (delete-record sample-db next))))))
 
 (def the-black-keys #{"Dan Auerbach" "Patrick Carney"})
 (def the-white-stripes #{"Jack White" "Meg White"})
@@ -208,7 +213,7 @@
 (def albums #{"Magic Potion"
               "Thickfreakness"
               "Elephant"
-              "White Blook Cells"
+              "White Blood Cells"
               "Broken Boy Soldiers"})
 
 (def magic-potion-tracks #{"Just Got To Be"

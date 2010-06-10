@@ -9,21 +9,22 @@
 (ns carte.core
   (:use (carte sql model)
         (clojure [set :only (difference)])
-        (clojure.contrib [map-utils :only (deep-merge-with)])))
+        (clojure.contrib [map-utils :only (deep-merge-with)]))
+  (:require (clojure [zip :as zip])))
 
-(defn conj-in [m ks v]
-  (let [size (count (get-in m ks))]
-    (assoc-in m (conj ks size) v)))
+(defn conj-in [data ks v]
+  (let [size (count (get-in data ks))]
+    (assoc-in data (conj ks size) v)))
 
-(defn remove-in [m ks v]
-  (let [coll (get-in m ks)]
-    (assoc-in m
+(defn remove-in [data ks v]
+  (let [coll (get-in data ks)]
+    (assoc-in data
               ks
               (filter #(not (= v (select-keys % (keys v)))) coll))))
 
-(defn find-in [ks v]
+(defn find-in [ks data]
   (loop [ks ks
-         result v]
+         result data]
     (if (seq ks)
       (recur (rest ks)
              (let [next-test (first ks)]
@@ -41,6 +42,41 @@
                              []
                              result))))
       result)))
+
+;; BEGIN YOU ARE HERE
+
+#_(defn find-paths-in-map [index ks m]
+  (let [next (first ks)
+        item (next m)]
+    (if item
+      (if (map? item) (...)
+          (...))
+      nil)))
+
+#_(defn find-paths-in-list [ks data]
+  (loop [index 0
+         paths []
+         data data]
+    (if (seq data)
+      (recur (inc index)
+             (let [new-paths (find-paths-in-map index ks (first data))]
+               (if new-paths
+                 (concat paths new-paths)
+                 paths))
+             (rest data))
+      paths)))
+
+#_(defn vary-in [coll path pattern val]
+  (cond (map? coll) (first (vary-in [coll] path pattern val))
+        :else {}))
+
+(comment
+  (vary-in data [:artists {:name "Jack White"}] {:name "Jack Daniels"})
+  (vary-in data [:genre {:name "Rock"}] {:name "Old School"})
+  (vary-in data [:albums :tracks {:name "Your Touch"}] {:name "Your Tourch"})
+  )
+
+;; END YOU ARE HERE
 
 (defn find-first-in [ks v]
   (first (find-in ks v)))
@@ -160,8 +196,7 @@
   ([existing-rec new-rec]
      (let [existing-meta (meta existing-rec)
            merged-rec (merge-with concat-assoc existing-rec new-rec)]
-       (with-meta merged-rec {::table (::table existing-meta)
-                              ::original merged-rec})))
+       (with-meta merged-rec {::table (::table existing-meta)})))
   ([coll]
      (let [order (distinct-ids-in-order coll)
            index (reduce (fn [a b]
@@ -207,18 +242,76 @@
                               nested-rec
                               flat-rec)
              (rest associations))
-      (with-meta nested-rec {::table table
-                             ::original nested-rec}))))
+      (with-meta nested-rec {::table table}))))
+
+;; TODO - Move this function to a higher level library
+
+(defn map-map
+  "Produce a new map where the value for each key is the result of applying
+   f to each key and value. If this function returns :remove then that key
+   will not be added to the new map."
+  [f m]
+  (reduce (fn [a b]
+            (let [[k v] b
+                  new-v (f k v)]
+              (if (= new-v :remove)
+                a
+                (assoc a k new-v))))
+          {}
+          m))
+
+(defn remove-nested
+  "Given a map, remove any elements that are vectors, lists or maps."
+  [m]
+  (map-map (fn [k v]
+             (cond (or (vector? v)
+                       (map? v)
+                       (list? v)) :remove
+                       :else v))
+           m))
+
+(defn canonical-form
+  "Given a map containing nested data structures, create the cononical form
+   for the map that can be put into the metadata and used to determine if a
+   record has been changed."
+  [form]
+  (map-map (fn [k v]
+             (cond (or (vector? v)
+                       (list? v)) (vec (map remove-nested v))
+                       (map? v) (remove-nested v)
+                       :else v))
+           form))
+
+(defn put-original-in-meta
+  "Update the metadata to include the original canonical form of this record."
+  [m]
+  (vary-meta m merge {::original (canonical-form m)}))
+
+(defn add-original-meta
+  "Recursively add original metadata to all elements of this collection."
+  [coll]
+  (vec
+   (map #(put-original-in-meta
+          (with-meta
+            (map-map (fn [k v]
+                       (cond (or (vector? v)
+                                 (list? v)) (add-original-meta v)
+                                 (map? v) (put-original-in-meta v)
+                                 :else v))
+                     %)
+            (meta %)))
+        coll)))
 
 ;; This will be the new implementation of transforming query plan
 ;; results. I have already written the tests. Once all the tests pass
 ;; then you should be able to swap in this implementation.
 (defn flat->nested [db table joins records-seq]
   (let [model (or (:model db) {})]
+    (add-original-meta
      (merge-nested
       (vec
        (map #(single-record-flat->nested model table joins %)
-            (first records-seq))))))
+            (first records-seq)))))))
 
 (defn execute-query-plan [db table q]
   (let [parsed-query (parse-query (:model db) table q)]
@@ -267,29 +360,29 @@
                    {}
                    association-names))))
 
-;; TODO - You should also consider a record to be dirty if it does not
-;; have an id.
-
 (defn dirty?
-  "Check the metadata to see if the value of this record has changed."
+  "Check the metadata to see if the value of this record has changed. If a
+   record does not have an id key then it is considered to be dirty."
   [record]
-  (not (= record (-> record meta ::original))))
+  (let [keys (keys record)
+        original (select-keys (-> record meta ::original) keys)]
+    (or (not (:id record))
+        (not (= (canonical-form record) original)))))
 
-(defn save-and-get-id
+(defn save-and-get
   "If the record is dirty then save it. Return the id of the saved record."
   [db record]
   (if (dirty? record)
     (let [table (::table (meta record))]
-      (:id
-       (if (:id record)
-         (do
-           (sql-update db table (:id record) (m-dissoc record :id))
-           record)
-         (do
-           (sql-insert db table record)
-           (first
-            (fetch db table record))))))
-    (:id record)))
+      (if (:id record)
+        (do
+          (sql-update db table (:id record) (m-dissoc record :id))
+          record)
+        (do
+          (sql-insert db table record)
+          (first
+           (fetch db table record)))))
+    record))
 
 (defn delete-record
   "Delete a record and recursively delete any records in one-to-many
@@ -341,7 +434,8 @@
 
 (defmethod save-associations :one-to-many
   [db join-model record alias coll]
-  (let [old-list (set (-> record meta ::original alias))
+  (let [{:keys [table link]} join-model
+        old-list (set (fetch db table {link (:id record)}))
         new-list (set coll)
         items-to-delete (difference old-list new-list)
         items-to-add (difference new-list old-list)]
@@ -349,7 +443,7 @@
       (doseq [next items-to-delete]
         (delete-record db next))
       (doseq [next items-to-add]
-        (save-or-update db (assoc next (:link join-model) (:id record)))))))
+        (save-or-update db (assoc next link (:id record)))))))
 
 (defmethod save-associations :many-to-one
   [db join-model record alias new-value]
@@ -372,7 +466,7 @@
   (let [model (:model db)
         {record :base-record :as m} (dismantle-record model record)
         base-table (-> record meta ::table)
-        base-id (save-and-get-id db record)]
+        record (save-and-get db record)]
     (loop [associations (dissoc m :base-record)]
       (if (seq associations)
         (let [next (first associations)
@@ -381,12 +475,12 @@
           (do
             (save-associations db
                                (find-join-by model base-table :alias alias)
-                               (assoc record :id base-id)
+                               (assoc record :id (:id record))
                                alias
                                assoc-values)
             (save-or-update* db assoc-values)
             (recur (rest associations))))
-        base-id))))
+        record))))
 
 (defn save-or-update* [db record-or-coll]
   (cond (map? record-or-coll)
