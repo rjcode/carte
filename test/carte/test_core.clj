@@ -10,6 +10,125 @@
   (:use (clojure test)
         (carte core model fixtures)))
 
+(def *hit-database* true)
+
+;;
+;; Test Data Transformations
+;;
+
+(def fixture-nested
+     (add-original-meta
+      [{:id 1 
+        :title "A"
+        :genre {:id 1 :name "a"}
+        :artists [{:id 1 :name "x"}]} 
+       {:id 2 
+        :title "B"
+        :genre {:id 1 :name "a"}
+        :artists [{:id 1 :name "x"}]} 
+       {:id 3 
+        :title "C"
+        :genre {:id 2 :name "b"}
+        :artists [{:id 2 :name "y"}]}]))
+
+(deftest test-conj-in
+  (is (= (conj-in (first fixture-nested) [:artists] {:id 3 :name "z"})
+         {:id 1 
+          :title "A"
+          :genre {:id 1 :name "a"}
+          :artists [{:id 1 :name "x"} {:id 3 :name "z"}]})))
+
+(deftest test-concat-in
+  (is (= (concat-in (first fixture-nested) [:artists] [{:id 3 :name "z"}
+                                                       {:id 4 :name "m"}])
+         {:id 1 
+          :title "A"
+          :genre {:id 1 :name "a"}
+          :artists [{:id 1 :name "x"} {:id 3 :name "z"} {:id 4 :name "m"}]})))
+
+(deftest test-find-in
+  (are [query _ expected]
+       (= (find-in query
+                   [{:id 4 
+                     :title "Magic Potion"
+                     :genre {:id 1 :name "Rock"}
+                     :artists [{:id 3 :name "The Black Keys"}]} 
+                    {:id 5 
+                     :title "Thickfreakness"
+                     :genre {:id 1 :name "Rock"}
+                     :artists [{:id 3 :name "The Black Keys"}]} 
+                    {:id 6 
+                     :title "Let's Dance"
+                     :genre {:id 1 :name "Weird"}
+                     :artists [{:id 4 :name "David Bowie"}]}])
+          expected)
+       [:title] :=> ["Magic Potion" "Thickfreakness" "Let's Dance"]
+       [{:title "Magic Potion"}] :=> [{:id 4 
+                                       :title "Magic Potion"
+                                       :genre {:id 1 :name "Rock"}
+                                       :artists
+                                       [{:id 3 :name "The Black Keys"}]}]
+       
+       [{:title "Magic Potion"} :id] :=> [4]
+       
+       [{:title "Let's Dance"} :artists] :=> [{:id 4 :name "David Bowie"}]
+
+       [{:title "Let's Dance"} :artists :name] :=> ["David Bowie"]
+
+       [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]
+
+       [:genre :name] ["Rock" "Rock" "Weird"]))
+
+(deftest test-vary-in
+  (if *hit-database*
+    (with-test-database default-test-data
+     (are [table pattern new-vals transform-fn expected]
+          (= (transform-fn
+              (vary-in ($ :album :with :artists)
+                       table
+                       pattern
+                       new-vals))
+             expected)
+        
+          ;; Update a top level map
+          :album
+          {:title "Magic Potion"}
+          {:title "Magic Motion"}
+          #(-> % first :title)
+          "Magic Motion"
+        
+          ;; Ensure that the top level map still has the correct metadata
+          :album
+          {:title "Magic Potion"}
+          {:title "Magic Motion"}
+          #(-> % first meta orig-key :title)
+          "Magic Potion"
+        
+          ;; Update a map in a nested list
+          :artist
+          {:name "Jack White"}
+          {:name "Jack Daniels"}
+          #(-> (nth % 2) :artists first :name)
+          "Jack Daniels"
+        
+          ;; Ensure that the nested map still has the correct metadata
+          :artist
+          {:name "Jack White"}
+          {:name "Jack Daniels"}
+          #(-> (nth % 2) :artists first meta orig-key :name)
+          "Jack White"
+
+          ;; Use a function to upate a value
+          :artist
+          {:name "Jack White"}
+          {:name #(.substring % 1)}
+          #(-> (nth % 2) :artists first :name)
+          "ack White"))))
+
+;;
+;; Test Query
+;;
+
 (deftest test-parse-join-part
   (are [x _ y] (= (parse-join-part (:model fixture-model-one-to-many)
                                    :page
@@ -355,207 +474,127 @@
        fixture-model-one-and-many-to-many :page :versions
        fixture-join-version))
 
-(deftest test-find-in
-  (are [query _ expected]
-       (= (find-in query
-                   [{:id 4 
-                     :title "Magic Potion"
-                     :genre {:id 1 :name "Rock"}
-                     :artists [{:id 3 :name "The Black Keys"}]} 
-                    {:id 5 
-                     :title "Thickfreakness"
-                     :genre {:id 1 :name "Rock"}
-                     :artists [{:id 3 :name "The Black Keys"}]} 
-                    {:id 6 
-                     :title "Let's Dance"
-                     :genre {:id 1 :name "Weird"}
-                     :artists [{:id 4 :name "David Bowie"}]}])
-          expected)
-       [:title] :=> ["Magic Potion" "Thickfreakness" "Let's Dance"]
-       [{:title "Magic Potion"}] :=> [{:id 4 
-                                       :title "Magic Potion"
-                                       :genre {:id 1 :name "Rock"}
-                                       :artists
-                                       [{:id 3 :name "The Black Keys"}]}]
-       
-       [{:title "Magic Potion"} :id] :=> [4]
-       
-       [{:title "Let's Dance"} :artists] :=> [{:id 4 :name "David Bowie"}]
-
-       [{:title "Let's Dance"} :artists :name] :=> ["David Bowie"]
-
-       [:artists :name] :=> ["The Black Keys" "The Black Keys" "David Bowie"]
-
-       [:genre :name] ["Rock" "Rock" "Weird"]))
-
-(deftest test-vary-in
-  (with-test-database default-test-data
-    (are [table pattern new-vals transform-fn expected]
-        (= (transform-fn
-            (vary-in ($ :album :with :artists)
-                     table
-                     pattern
-                     new-vals))
-           expected)
-        
-        ;; Update a top level map
-        :album
-        {:title "Magic Potion"}
-        {:title "Magic Motion"}
-        #(-> % first :title)
-        "Magic Motion"
-        
-        ;; Ensure that the top level map still has the correct metadata
-        :album
-        {:title "Magic Potion"}
-        {:title "Magic Motion"}
-        #(-> % first meta orig-key :title)
-        "Magic Potion"
-        
-        ;; Update a map in a nested list
-        :artist
-        {:name "Jack White"}
-        {:name "Jack Daniels"}
-        #(-> (nth % 2) :artists first :name)
-        "Jack Daniels"
-        
-        ;; Ensure that the nested map still has the correct metadata
-        :artist
-        {:name "Jack White"}
-        {:name "Jack Daniels"}
-        #(-> (nth % 2) :artists first meta orig-key :name)
-        "Jack White"
-
-        ;; Use a function to upate a value
-        :artist
-        {:name "Jack White"}
-        {:name #(.substring % 1)}
-        #(-> (nth % 2) :artists first :name)
-        "ack White")))
-
-;; The following tests require that you have a mysql database
-;; available on localhost.
-
 (deftest test-fetch
-  (with-test-database default-test-data
-    (are [q f expected] (= (f q) expected)
+  (if *hit-database*
+    (with-test-database default-test-data
+     (are [q f expected] (= (f q) expected)
          
-         (fetch db ["select * from album"]) count (count albums)
+          (fetch db ["select * from album"]) count (count albums)
          
-         (fetch db ["select * from album where title = \"Magic Potion\""])
-         #(:title (first %))
-         "Magic Potion"
+          (fetch db ["select * from album where title = \"Magic Potion\""])
+          #(:title (first %))
+          "Magic Potion"
          
-         (fetch-one db ["select * from album where title = \"Magic Potion\""])
-         :title
-         "Magic Potion"
+          (fetch-one db ["select * from album where title = \"Magic Potion\""])
+          :title
+          "Magic Potion"
          
-         (fetch db :album) count (count albums)
+          (fetch db :album) count (count albums)
          
-         (fetch db :artist)
-         #(set (map :name %))
-         artists
+          (fetch db :artist)
+          #(set (map :name %))
+          artists
          
-         (fetch db :artist [:name])
-         #(set (map :name %))
-         artists
+          (fetch db :artist [:name])
+          #(set (map :name %))
+          artists
          
-         ($ :artist [:name])
-         #(set (map :name %))
-         artists
+          ($ :artist [:name])
+          #(set (map :name %))
+          artists
          
-         ($ :album) count (count albums)
+          ($ :album) count (count albums)
                   
-         ($1 :artist [:name] {:name "Jack White"})
-         :name
-         "Jack White"
+          ($1 :artist [:name] {:name "Jack White"})
+          :name
+          "Jack White"
 
-         ($1 :artist [:name] {:name "Jack White"})
-         #(-> % meta orig-key :name)
-         "Jack White"
+          ($1 :artist [:name] {:name "Jack White"})
+          #(-> % meta orig-key :name)
+          "Jack White"
 
-         ($1 :artist [:name] {:name "Jack White"})
-         #(-> % meta table-key)
-         :artist
+          ($1 :artist [:name] {:name "Jack White"})
+          #(-> % meta table-key)
+          :artist
          
-         ($ :album {:title "Mag*"} {:title "Th*"})
-         #(set (map :title %))
-         #{"Magic Potion" "Thickfreakness"}
+          ($ :album {:title "Mag*"} {:title "Th*"})
+          #(set (map :title %))
+          #{"Magic Potion" "Thickfreakness"}
          
-         ($ :album {:where ["title like ? or title like ?" "Mag%" "Th%"]})
-         #(set (map :title %))
-         #{"Magic Potion" "Thickfreakness"}
+          ($ :album {:where ["title like ? or title like ?" "Mag%" "Th%"]})
+          #(set (map :title %))
+          #{"Magic Potion" "Thickfreakness"}
          
-         ($ :album :with :artists)
-         #(set (find-in [{:title "Magic Potion"} :artists :name] %))
-         the-black-keys
+          ($ :album :with :artists)
+          #(set (find-in [{:title "Magic Potion"} :artists :name] %))
+          the-black-keys
          
-         ($1 :album {:title "Magic Potion"} :with :artists)
-         #(set (map :name (:artists %)))
-         the-black-keys
+          ($1 :album {:title "Magic Potion"} :with :artists)
+          #(set (map :name (:artists %)))
+          the-black-keys
          
-         ($1 :album {:where ["title = ?" "Magic Potion"]} :with :artists)
-         #(set (map :name (:artists %)))
-         the-black-keys
+          ($1 :album {:where ["title = ?" "Magic Potion"]} :with :artists)
+          #(set (map :name (:artists %)))
+          the-black-keys
          
-         ($ :artist :with :albums)
-         #(find-first-in [{:name (first the-black-keys)} :albums :title] %)
-         "Magic Potion"
+          ($ :artist :with :albums)
+          #(find-first-in [{:name (first the-black-keys)} :albums :title] %)
+          "Magic Potion"
          
-         ($ :album :with [:artist])
-         #(set (find-in [{:title "Magic Potion"} :artists :name] %))
-         the-black-keys
+          ($ :album :with [:artist])
+          #(set (find-in [{:title "Magic Potion"} :artists :name] %))
+          the-black-keys
          
-         ($ :album :with [:artist {:name "Jack White"}]) count 2
+          ($ :album :with [:artist {:name "Jack White"}]) count 2
          
-         ($ :album :with [:artist {:name "Jack White"}])
-         #(set (map :title %))
-         #{"Elephant" "Broken Boy Soldiers"}
+          ($ :album :with [:artist {:name "Jack White"}])
+          #(set (map :title %))
+          #{"Elephant" "Broken Boy Soldiers"}
 
-         ($ :album :with :tracks)
-         #(set (find-in [{:title "Magic Potion"} :tracks :name] %))
-         magic-potion-tracks
+          ($ :album :with :tracks)
+          #(set (find-in [{:title "Magic Potion"} :tracks :name] %))
+          magic-potion-tracks
 
-         ($ :album :with [:track {:name "Seven*"}])
-         #(set (map :title %))
-         #{"Elephant"}
+          ($ :album :with [:track {:name "Seven*"}])
+          #(set (map :title %))
+          #{"Elephant"}
 
-         ($ :album :with :tracks :artists)
-         #(set (map :name (find-in [{:title "Elephant"} :artists] %)))
-         the-white-stripes
+          ($ :album :with :tracks :artists)
+          #(set (map :name (find-in [{:title "Elephant"} :artists] %)))
+          the-white-stripes
 
-         ($ :album :with :tracks :artists)
-         #(set (map :name (find-in [{:title "Elephant"} :tracks] %)))
-         elephant-tracks
+          ($ :album :with :tracks :artists)
+          #(set (map :name (find-in [{:title "Elephant"} :tracks] %)))
+          elephant-tracks
          
-         ($ :artist :with [:album :with :tracks])
-         #(set (map :name (find-in [{:name "Meg White"} :albums :tracks] %)))
-         elephant-tracks
+          ($ :artist :with [:album :with :tracks])
+          #(set (map :name (find-in [{:name "Meg White"} :albums :tracks] %)))
+          elephant-tracks
 
-         ($ :artist :with [:album :with [:track {:name "Call*"}]])         
-         #(set (map :name %))
-         the-raconteurs
+          ($ :artist :with [:album :with [:track {:name "Call*"}]])         
+          #(set (map :name %))
+          the-raconteurs
 
-         ($ :album :with :genre)
-         #(-> % first :genre :name)
-         "Blues/Rock"
+          ($ :album :with :genre)
+          #(-> % first :genre :name)
+          "Blues/Rock"
 
-         ($ :album :with [:genre {:name "Rock"}])
-         #(set (map :title %))
-         #{"Elephant" "Broken Boy Soldiers"}
+          ($ :album :with [:genre {:name "Rock"}])
+          #(set (map :title %))
+          #{"Elephant" "Broken Boy Soldiers"}
 
-         ($ :track {:name "*You*"} :with :album)
-         #(set (distinct (find-in [:album :title] %)))
-         #{"Magic Potion" "Elephant"}
+          ($ :track {:name "*You*"} :with :album)
+          #(set (distinct (find-in [:album :title] %)))
+          #{"Magic Potion" "Elephant"}
 
-         ($ :genre :with :albums)
-         #(set (find-in [:albums :title] %))
-         #{"Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"}
+          ($ :genre :with :albums)
+          #(set (find-in [:albums :title] %))
+          #{"Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"}
 
-         ($ :album :order-by :title)
-         #(map :title %)
-         ["Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"
-          "White Blood Cells"])
+          ($ :album :order-by :title)
+          #(map :title %)
+          ["Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"
+           "White Blood Cells"])
     
      (let [result ($1 :album {:title "Magic Potion"})]
        (is (= (:title result) "Magic Potion"))
@@ -565,7 +604,7 @@
            r1 (apply $ q)
            r2 ($ :album :with q)]
        (is (= (set (map :name r1)) the-white-stripes))
-       (is (= (set (map :title r2)) #{"Elephant" "Broken Boy Soldiers"})))))
+       (is (= (set (map :title r2)) #{"Elephant" "Broken Boy Soldiers"}))))))
 
 (comment
   
@@ -577,66 +616,81 @@
   ($ :album :order-by :title :with [:artist :order-by :name])
   )
 
+;;
+;; Test Save, Update and Delete
+;;
+
 (deftest test-updates
-  (with-test-database default-test-data
+  (if *hit-database*
+    (with-test-database default-test-data
     
-    (are [query update-fn test-fn expected]
-         (do
-           (! (update-fn (apply $1 query)))
-           (= (test-fn (apply $1 query)) expected))
+     (are [query update-fn test-fn expected]
+          (do
+            (! (update-fn (apply $1 query)))
+            (= (test-fn (apply $1 query)) expected))
 
-         ;; Add a track to an album
-         [:album {:title "Magic Potion"} :with :tracks]
-         #(conj-in % [:tracks] ($1 :track {:name "Black Math"}))
-         #(set (find-in [:tracks :name] [%]))
-         #{"Just Got To Be" "Strange Desire" "Your Touch" "You're the One"
-           "Black Math"}
+          ;; Add a track to an album
+          [:album {:title "Magic Potion"} :with :tracks]
+          #(conj-in % [:tracks] ($1 :track {:name "Black Math"}))
+          #(set (find-in [:tracks :name] [%]))
+          #{"Just Got To Be" "Strange Desire" "Your Touch" "You're the One"
+            "Black Math"}
 
-         ;; Remove a track from an album
-         [:album {:title "Magic Potion"} :with :tracks]
-         #(remove-in % [:tracks] {:name "Black Math"})
-         #(set (find-in [:tracks :name] [%]))
-         #{"Just Got To Be" "Strange Desire" "Your Touch" "You're the One"}
+          ;; Remove a track from an album
+          [:album {:title "Magic Potion"} :with :tracks]
+          #(remove-in % [:tracks] {:name "Black Math"})
+          #(set (find-in [:tracks :name] [%]))
+          #{"Just Got To Be" "Strange Desire" "Your Touch" "You're the One"}
          
-         ;; Associate a genre with an album
-         [:album {:title "White Blood Cells"} :with :genre]
-         #(assoc % :genre ($1 :genre {:name "Rock"}))
-         :genre
-         ($1 :genre {:name "Rock"})
+          ;; Associate a genre with an album
+          [:album {:title "White Blood Cells"} :with :genre]
+          #(assoc % :genre ($1 :genre {:name "Rock"}))
+          :genre
+          ($1 :genre {:name "Rock"})
          
-         ;; Clear the genre
-         [:album {:title "White Blood Cells"} :with :genre]
-         #(assoc % :genre nil)
-         :genre
-         nil
+          ;; Clear the genre
+          [:album {:title "White Blood Cells"} :with :genre]
+          #(assoc % :genre nil)
+          :genre
+          nil
          
-         ;; Add an artist to an album
-         [:album {:title "Magic Potion"} :with :artists]
-         #(conj-in % [:artists] ($1 :artist {:name "Jack White"}))
-         #(set (find-in [:artists :name] [%]))
-         #{"Patrick Carney" "Dan Auerbach" "Jack White"}
+          ;; Add an artist to an album
+          [:album {:title "Magic Potion"} :with :artists]
+          #(conj-in % [:artists] ($1 :artist {:name "Jack White"}))
+          #(set (find-in [:artists :name] [%]))
+          #{"Patrick Carney" "Dan Auerbach" "Jack White"}
          
-         ;; Remove an artist from an album
-         [:album {:title "Magic Potion"} :with :artists]
-         #(remove-in % [:artists] {:name "Jack White"})
-         #(set (find-in [:artists :name] [%]))
-         #{"Patrick Carney" "Dan Auerbach"}
+          ;; Remove an artist from an album
+          [:album {:title "Magic Potion"} :with :artists]
+          #(remove-in % [:artists] {:name "Jack White"})
+          #(set (find-in [:artists :name] [%]))
+          #{"Patrick Carney" "Dan Auerbach"}
          
-         ;; Add an album to an artist
-         [:artist {:name "Jack White"} :with :albums]
-         #(conj-in % [:albums] ($1 :album {:title "Magic Potion"}))
-         #(set (find-in [:albums :title] [%]))
-         #{"Elephant" "Broken Boy Soldiers" "Magic Potion"}
+          ;; Add an album to an artist
+          [:artist {:name "Jack White"} :with :albums]
+          #(conj-in % [:albums] ($1 :album {:title "Magic Potion"}))
+          #(set (find-in [:albums :title] [%]))
+          #{"Elephant" "Broken Boy Soldiers" "Magic Potion"}
          
-         ;; Remove an album from an artist
-         [:artist {:name "Jack White"} :with :albums]
-         #(remove-in % [:albums] {:title "Magic Potion"})
-         #(set (find-in [:albums :title] [%]))
-         #{"Elephant" "Broken Boy Soldiers"})
-
-    (let [result (! :album {:title "New Album"})
-          rec ($1 :album {:title "New Album"})]
-      (is (= (:title rec) "New Album"))
-      (is (= result rec)))))
+          ;; Remove an album from an artist
+          [:artist {:name "Jack White"} :with :albums]
+          #(remove-in % [:albums] {:title "Magic Potion"})
+          #(set (find-in [:albums :title] [%]))
+          #{"Elephant" "Broken Boy Soldiers"})
+     
+     ;; Test adding a new album
+     (let [result (! :album {:title "New Album"})
+           rec ($1 :album {:title "New Album"})]
+       (is (= (:title rec) "New Album"))
+       (is (= result rec)))
+     
+     ;; Test that deleting an album will also delete the associated tracks
+     (let [all-tracks (count ($ :track))
+           mp-tracks (count ($ :track :with [:album {:title "Magic Potion"}]))
+           album (-> ($1 :album {:title "Magic Potion"} :with :artists)
+                     (assoc :artists []))
+           saved (! album)
+           result (delete-record sample-db album)]
+       (is (= (count ($ :track)) (- all-tracks mp-tracks)))))))
 
 

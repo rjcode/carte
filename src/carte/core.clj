@@ -12,7 +12,9 @@
         (clojure.contrib [map-utils :only (deep-merge-with)]))
   (:require (clojure [zip :as zip])))
 
-;; TODO - Move this function to a higher level library
+;;
+;; Data Transformations
+;;
 
 (defn map-map
   "Produce a new map where the value for each key is the result of applying
@@ -34,6 +36,11 @@
 (defn conj-in [data ks v]
   (let [size (count (get-in data ks))]
     (assoc-in data (conj ks size) v)))
+
+(defn concat-in [data ks v]
+  {:pre [(vector? v)]}
+  (let [before (get-in data ks)]
+    (assoc-in data ks (concat before v))))
 
 (defn remove-in [data ks v]
   (let [coll (get-in data ks)]
@@ -92,6 +99,10 @@
 
 (defn find-first-in [ks v]
   (first (find-in ks v)))
+
+;;
+;; Queries
+;;
 
 (defn parse-query-part [table q]
   (loop [q q
@@ -334,6 +345,10 @@
        (Exception. (str "Expecting 1 result but received "
                         result-count
                         "."))))))
+
+;;
+;; Save, Update and Delete
+;;
 
 (declare save-or-update)
 
