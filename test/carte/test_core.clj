@@ -388,6 +388,51 @@
 
        [:genre :name] ["Rock" "Rock" "Weird"]))
 
+(deftest test-vary-in
+  (with-test-database default-test-data
+    (are [table pattern new-vals transform-fn expected]
+        (= (transform-fn
+            (vary-in ($ :album :with :artists)
+                     table
+                     pattern
+                     new-vals))
+           expected)
+        
+        ;; Update a top level map
+        :album
+        {:title "Magic Potion"}
+        {:title "Magic Motion"}
+        #(-> % first :title)
+        "Magic Motion"
+        
+        ;; Ensure that the top level map still has the correct metadata
+        :album
+        {:title "Magic Potion"}
+        {:title "Magic Motion"}
+        #(-> % first meta orig-key :title)
+        "Magic Potion"
+        
+        ;; Update a map in a nested list
+        :artist
+        {:name "Jack White"}
+        {:name "Jack Daniels"}
+        #(-> (nth % 2) :artists first :name)
+        "Jack Daniels"
+        
+        ;; Ensure that the nested map still has the correct metadata
+        :artist
+        {:name "Jack White"}
+        {:name "Jack Daniels"}
+        #(-> (nth % 2) :artists first meta orig-key :name)
+        "Jack White"
+
+        ;; Use a function to upate a value
+        :artist
+        {:name "Jack White"}
+        {:name #(.substring % 1)}
+        #(-> (nth % 2) :artists first :name)
+        "ack White")))
+
 ;; The following tests require that you have a mysql database
 ;; available on localhost.
 

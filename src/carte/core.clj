@@ -12,6 +12,25 @@
         (clojure.contrib [map-utils :only (deep-merge-with)]))
   (:require (clojure [zip :as zip])))
 
+;; TODO - Move this function to a higher level library
+
+(defn map-map
+  "Produce a new map where the value for each key is the result of applying
+   f to each key and value. If this function returns :remove then that key
+   will not be added to the new map. Preserves metadata."
+  [f m]
+  (let [metadata (meta m)]
+    (with-meta
+      (reduce (fn [a b]
+               (let [[k v] b
+                     new-v (f k v)]
+                 (if (= new-v :remove)
+                   a
+                   (assoc a k new-v))))
+             {}
+             m)
+      metadata)))
+
 (defn conj-in [data ks v]
   (let [size (count (get-in data ks))]
     (assoc-in data (conj ks size) v)))
@@ -43,40 +62,33 @@
                              result))))
       result)))
 
-;; BEGIN YOU ARE HERE
+(declare vary-in-map)
+(declare vary-in)
 
-#_(defn find-paths-in-map [index ks m]
-  (let [next (first ks)
-        item (next m)]
-    (if item
-      (if (map? item) (...)
-          (...))
-      nil)))
+(defn- vary-within-map [m type pattern new-vals]
+  (map-map (fn [k v]
+             (cond (map? v) (vary-in-map v type pattern new-vals)
+                   (or (vector? v) (list? v)) (vary-in v type pattern new-vals)
+                   :else v))
+           m))
 
-#_(defn find-paths-in-list [ks data]
-  (loop [index 0
-         paths []
-         data data]
-    (if (seq data)
-      (recur (inc index)
-             (let [new-paths (find-paths-in-map index ks (first data))]
-               (if new-paths
-                 (concat paths new-paths)
-                 paths))
-             (rest data))
-      paths)))
+(defn- vary-in-map [m type pattern new-vals]
+  (let [m (vary-within-map m type pattern new-vals)]
+    (if (and (= type (-> m meta ::table))
+             (= (select-keys m (keys pattern)) pattern))
+      (reduce (fn [result [key new-value]]
+                (assoc result key
+                       (if (fn? new-value)
+                         (new-value (key result))
+                         new-value)))
+              m
+              new-vals)
+      m)))
 
-#_(defn vary-in [coll path pattern val]
-  (cond (map? coll) (first (vary-in [coll] path pattern val))
-        :else {}))
-
-(comment
-  (vary-in data [:artists {:name "Jack White"}] {:name "Jack Daniels"})
-  (vary-in data [:genre {:name "Rock"}] {:name "Old School"})
-  (vary-in data [:albums :tracks {:name "Your Touch"}] {:name "Your Tourch"})
-  )
-
-;; END YOU ARE HERE
+(defn vary-in [coll type pattern new-vals]
+  (cond (map? coll) (first (vary-in [coll] type pattern new-vals))
+        :else
+        (vec (map #(vary-in-map % type pattern new-vals) coll))))
 
 (defn find-first-in [ks v]
   (first (find-in ks v)))
@@ -244,22 +256,6 @@
              (rest associations))
       (with-meta nested-rec {::table table}))))
 
-;; TODO - Move this function to a higher level library
-
-(defn map-map
-  "Produce a new map where the value for each key is the result of applying
-   f to each key and value. If this function returns :remove then that key
-   will not be added to the new map."
-  [f m]
-  (reduce (fn [a b]
-            (let [[k v] b
-                  new-v (f k v)]
-              (if (= new-v :remove)
-                a
-                (assoc a k new-v))))
-          {}
-          m))
-
 (defn remove-nested
   "Given a map, remove any elements that are vectors, lists or maps."
   [m]
@@ -302,9 +298,6 @@
             (meta %)))
         coll)))
 
-;; This will be the new implementation of transforming query plan
-;; results. I have already written the tests. Once all the tests pass
-;; then you should be able to swap in this implementation.
 (defn flat->nested [db table joins records-seq]
   (let [model (or (:model db) {})]
     (add-original-meta
