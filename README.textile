@@ -1,22 +1,31 @@
+<a name="top"></a>
+
 h1. Carte
 
-Carte is ORM for Clojure, without the O. It's more of an MRM or IMRM but we don't need to get into that right now.
+Carte is relational mapping for Clojure. It maps nested immutable data structures to an underlying relational database management system. It is meant only to provide simple access and manipulation of relational data, it is not meant to be a replacement for SQL or relational algebra.
 
-The basic idea is that you tell Carte about the structure of the database that you are dealing with. When a query is executed, Carte will figure out a query plan, execute it and then compile the results into a nested data structure. Carte also provides functions to make it easier to manipulate these data structures. Finally, Carte can save entire data structures, or even lists of data structures, in one step, automatically figuring out which records need to be saved, updated and deleted.
+The basic idea is that you tell Carte about the structure of the database that you are dealing with. When a query is executed, Carte will figure out a query plan, execute it and then compile the results into a nested data structure. Carte provides functions to make it easier to manipulate these data structures. Finally, Carte can save entire data structures, or even lists of data structures, with one API call, automatically figuring out which records need to be saved, updated and deleted.
 
-The goal is to provide seamless interaction between the world of relational databases and Clojure's world of persistent data structures.
+The project is currently being developed against MySQL but the plan is to make it database independent. I plan to implement support for MySQL, Derby and ProsgreSQL. Once this is done, it should be easy for others to add support for additional RDMSs.
 
-The project is currently being developed against MySQL but the plan is to make it database independent. I plan to implement support for MySQL, Derby and ProsgreSQL. Once this is done, it should be easy for others to add support additional RDMSs.
-
-Carte also includes some very simple support for database migrations.
+As a side feature, Carte also includes some very simple support for database migrations.
 
 Every disclaimer goes here...
 
-This document walks you through some examples, showing the current functionality of Carte. If you would like to follow along with the examples then you will need to have MySQL, Git and "Leiningen":http://github.com/technomancy/leiningen installed. Once I have all of the basic features working with a stable API, I will push the first version to Clojars.
+This document walks through some examples, showing the current functionality of Carte. If you would like to follow along with the examples then you will need to have MySQL, Git and "Leiningen":http://github.com/technomancy/leiningen installed. Once I have all of the basic features working with a stable API, I will push a first version to Clojars.
+
+* <a href="#setup">Setting up MySQL and Cloning Carte</a>
+* <a href="#config">Configuring Carte</a>
+* <a href="#queries">Example Queries</a>
+* <a href="#composition">Query Composition</a>
+* <a href="#update">"Updating" Data</a>
+* <a href="#nested">Working with Nested Data Structures</a>
+
+<a name="setup"></a>
 
 h2. Setting up MySQL and Cloning Carte
 
-First, create the test database.
+First, create the example database.
 
 <pre>
 <code>
@@ -38,13 +47,16 @@ $ lein test
 </code>
 </pre>
 
-Running the tests will use Carte's migrations to create all of the tables in the database that you created. It will also run a bunch of tests against this database. If all of the tests pass then you should be able to follow along with the examples below.
+Running the tests will use Carte's migrations to create all of the tables in the database. It will also run a bunch of tests against this database. If all of the tests pass then you should be able to follow along with the examples below.
+
+<a name="config"></a>
+<a href="#top">Back to Top</a>
 
 h2. Configuring Carte
 
-This section shows what you would need to do in order to configure carte for use in your project. If you are just following along and want to run some queries then you may skip this section. In the next section we will run some code that does all of this for us. This is included here so that you know what is going on.
+This section shows what you would need to do in order to configure Carte for use in your project. If you are just following along and want to run some queries then you may skip this section. In the next section we will run some code that does all of this for us.
 
-Two things are required in order for carte to work, a database configuration and a data model definition. Below is the configuration for connecting to the test database that was created above. 
+Two things are required in order for Carte to work, a database configuration and a data model definition. Below is the configuration for connecting to the example database that was created above. 
 
 <pre>
 <code>
@@ -56,39 +68,51 @@ Two things are required in order for carte to work, a database configuration and
 </code>
 </pre>
 
-A data model is created using the <code>model</code> macro. Below we create a simple data model for the test database. This example only shows creating many-to-many, and one-to-many associations. In the future there will be support for many-to-one as well.
+For all of the following examples, we are working with a database which has the following structure.
+
+<center>
+<img src="https://s3.amazonaws.com/formpluslogic-public/images/carte/sample-schema.png" alt="Sample Schema" />
+</center>
+
+A data model is created using the <code>model</code> macro. Here we create the data model for the above schema.
 
 <pre>
 <code>
 (def data-model
      (model
+       (genre [:id :name])
        (track [:id :name]
               (belongs-to :album))
        (album [:id :title]
-              (many-to-many :artist))
-       (artist [:id :name]
-               (many-to-many :album => :album_artist))))
+              (many-to-many :artist)
+              (many-to-one :genre))
+       (artist [:id :name])))
 </code>
 </pre>
 
-This model makes a lot of assumptions about table names. If you want to be explicit then you may create the same model as shown below.
+The above model assumes that we are using the convention of singular table names and can therefore figure out the plural names and the names of the link tables and keys. Some people like to use a plural table names. In order to solve this problem, I plan to add a wrapper macro or function that will allow the developer to specify the convention that should be used.
+
+One may also be explicit in defining the model.
 
 <pre>
 <code>
 (def data-model
      (model
+       (genre [:id :name]
+              (one-to-many albums :album :genre_id))
        (track [:id :name]
               (belongs-to :album tracks :album_id))
        (album [:id :title]
-              (many-to-many artists :artist => :album_artist :album_id :artist_id)))
+              (many-to-many artists :artist => :album_artist :album_id :artist_id)
+              (many-to-one :genre :genre_id)))
        (artist [:id :name]
                (many-to-many albums :album => :album_artist :artist_id :album_id))))
 </code>
 </pre>
 
-There is also a <code>one-to-many</code> association that is available. <code>belongs-to</code> in the example above will create a one-to-many association between albums and tracks. When an album is deleted then all associated tracks will be deleted. If you were to use <code>one-to-many</code> in the above model to create an association between album and tracks then, if there is constraint on the foreign key, you would not be allowed to delete an album if it had associated tracks.
+<code>belongs-to</code> creates a one-to-many association between albums and tracks. When an album is deleted, all associated tracks will be deleted. If you were to use <code>one-to-many</code> in the above model to create an association between album and tracks then, if there is a constraint on the foreign key, you would not be allowed to delete an album if it had associated tracks.
 
-The API for Carte provides the functions <code>save-or-update</code>, <code>fetch</code> and <code>fetch-one</code>. The fist argument to each of these functions is a single map containing the database configuration and the model. In the example below, we merge the model and db config together and then create a few helper functions which will simplify the examples below.
+The API for Carte provides the functions <code>save-or-update</code>, <code>fetch</code> and <code>fetch-one</code>. The first argument to each of these functions is a single map containing the database configuration and the model. Below, we merge the model and database configuration together and then create a few helper functions which will simplify the examples which follow.
 
 <pre>
 <code>
@@ -100,11 +124,14 @@ The API for Carte provides the functions <code>save-or-update</code>, <code>fetc
 </code>
 </pre>
 
+<a name="queries"></a>
+<a href="#top">Back to Top</a>
+
 h2. Example Queries
 
 If you would like to follow along with these examples then you may start up a REPL and execute the following expressions. The <code>carte.fixtures</code> namespace will set up our database configuration, create a data model and create the helper functions described above. <code>default-test-data</code> will load sample data that we may experiment with. 
 
-Many of the results shown below are pretty printed but I don't show the call to pprint here.
+Many of the results shown below are pretty printed but the call to pprint is not shown in order to keep the examples simple.
 
 <pre>
 <code>
@@ -114,7 +141,7 @@ user> (default-test-data)
 </code>
 </pre>
 
-First we see a basic query for all records in a table. Also notice that each map that we get back from a query has metadata which contains the table that the record came from as well as the original value of the record. This allows Carte to know where each record should be saved and if it needs to be saved.
+First we see a basic query for all records in a table. Also notice that each map that we get back from a query has metadata which contains the table that the record came from as well as the original value of the record. This allows Carte to know where each record should be saved and if it needs to be saved. It also means that, in order to get the full benefit of Carte, when you modify a data structure you should be careful to preserve the metadata.
 
 <pre>
 <code>
@@ -131,7 +158,7 @@ user> (meta (first ($ :album)))
 </code>
 </pre>
 
-The queries below show various ways of selecting specific records from a single table. Note that we can select specific columns by including a vector of col names after the table. As it is now implemented, the :id is always returned because it is needed in order to be able to save or update a record. The corresponding SQL is shown above each query.
+The queries below show various ways of selecting specific records from a single table. Note that we can select specific columns by including a vector of column names after the table. As it is now implemented, the :id is always returned because it is needed in order to be able to save or update a record. The corresponding SQL is shown above each query.
 
 <pre>
 <code>
@@ -156,6 +183,22 @@ user> ($ :album {:where ["title <= ?" "Magic Potion"]})
 [{:title "Magic Potion", :id 16}
  {:title "Broken Boy Soldiers", :id 17}
  {:title "Elephant", :id 18}]
+
+;; select * from album order by title"
+user> ($ :album :order-by :title)
+[{:id 18, :title "Broken Boy Soldiers"}
+ {:id 19, :title "Elephant"}
+ {:id 17, :title "Magic Potion"}
+ {:id 21, :title "Thickfreakness"}
+ {:id 20, :title "White Blood Cells"}]
+
+;; select * from album order by title desc"
+user> ($ :album :order-by [:title :desc])
+[{:id 20, :title "White Blood Cells"}
+ {:id 21, :title "Thickfreakness"}
+ {:id 17, :title "Magic Potion"}
+ {:id 19, :title "Elephant"}
+ {:id 18, :title "Broken Boy Soldiers"}]
 </code>
 </pre>
 
@@ -296,6 +339,31 @@ user> ($ :artist :with [:album :with :tracks])
   :id 23}
   ...]
 
+user> ($ :artist :order-by :name :with [:album :with [:track :order-by :name]])
+[{:id 25,
+  :name "Brenden Benson",
+  :albums
+  [{:id 18,
+    :title "Broken Boy Soldiers",
+    :tracks
+    [{:id 47, :name "Call It a Day"}
+     {:id 44, :name "Hands"}
+     {:id 45, :name "Level"}
+     {:id 46, :name "Steady As She Goes"}
+     {:id 48, :name "Together"}]}]}
+ {:id 26,
+  :name "Dan Auerbach",
+  :albums
+  [{:id 21, :title "Thickfreakness", :tracks []}
+   {:id 17,
+    :title "Magic Potion",
+    :tracks
+    [{:id 37, :name "Just Got To Be"}
+     {:id 38, :name "Strange Desire"}
+     {:id 40, :name "You're the One"}
+     {:id 39, :name "Your Touch"}]}]}
+  ...]
+
 user> ($ :artist :with [:album :with [:track {:name "Call*"}]]))
 [{:albums
   [{:tracks [{:name "Call It a Day", :id 47}],
@@ -340,6 +408,11 @@ user> (binding [carte.sql/*debug* true]
 </code>
 </pre>
 
+<a name="composition"></a>
+<a href="#top">Back to Top</a>
+
+h2. Query Composition
+
 From the above examples we can see two important things about queries: they are just data and they have a very regular syntax. Each query looks like this:
 
 <pre>
@@ -352,7 +425,7 @@ where table-spec is defined as the sequence
 
 <pre>
 <code>
-[table [columns] [criteria*] [:with table-spec*]]	
+[table [columns] [criteria*] [order-by] [:with table-spec*]]	
 </code>
 </pre>
 
@@ -370,6 +443,97 @@ user> ($ :artist :with album-query)
 </code>
 </pre>
 
+There is also a much better way to compose queries using the <code>query</code> function. This function takes a model and then a table-spec or one or more compiled queries. If it is passed a table-spec, it will return a compiled query that can be executed using <code>fetch</code>. If it is passed a number of compiled queries, it will compose them into a new compiled query. As we did for <code>fetch</code> and <code>save-or-update</code>, I will create a shorthand closure.
+
+<pre>
+<code>
+(def & (partial query sample-db))
+</code>
+</pre>
+
+This allows us to create query templates that can then be modified and used later.
+
+<pre>
+<code>
+user> (def album-query (& :album :with :artists :tracks :genre))
+#'user/album-query
+
+user> album-query
+{:joins {:album (:artists :tracks :genre)}, :root-table :album}
+
+user> ($ album-query)
+[{:id 117,
+  :title "Magic Potion",
+  :artists
+  [{:id 157, :name "Patrick Carney"} {:id 159, :name "Dan Auerbach"}],
+  :tracks
+  [{:id 265, :name "Just Got To Be"}
+   {:id 266, :name "Strange Desire"}
+   {:id 267, :name "Your Touch"}
+   {:id 268, :name "You're the One"}],
+  :genre {:name "Blues/Rock", :id 46}}
+ ...]
+
+user> (def ordered-artist-query (& album-query (& :artist :order-by :name)))
+#'user/ordered-artist-query
+
+user> ordered-artist-query
+{:order-by [:artist [:name :asc]],
+ :joins {:album (:artists :tracks :genre)},
+ :root-table :album}
+
+user> ($ ordered-artist-query)
+[{:id 120,
+  :title "White Blood Cells",
+  :artists [],
+  :tracks [],
+  :genre nil}
+ {:id 118,
+  :title "Broken Boy Soldiers",
+  :artists
+  [{:id 158, :name "Brenden Benson"}
+   {:id 161, :name "Jack Lawrence"}
+   {:id 155, :name "Jack White"}
+   {:id 156, :name "Patrick Keeler"}],
+  :tracks
+  [{:id 272, :name "Hands"}
+   {:id 273, :name "Level"}
+   {:id 274, :name "Steady As She Goes"}
+   {:id 275, :name "Call It a Day"}
+   {:id 276, :name "Together"}],
+  :genre {:name "Rock", :id 45}}
+ ...]
+
+user> ($ (& ordered-artist-query (& :genre {:name "Rock"})))
+[{:id 118,
+  :title "Broken Boy Soldiers",
+  :artists
+  [{:id 158, :name "Brenden Benson"}
+   {:id 161, :name "Jack Lawrence"}
+   {:id 155, :name "Jack White"}
+   {:id 156, :name "Patrick Keeler"}],
+  :tracks
+  [{:id 272, :name "Hands"}
+   {:id 273, :name "Level"}
+   {:id 274, :name "Steady As She Goes"}
+   {:id 275, :name "Call It a Day"}
+   {:id 276, :name "Together"}],
+  :genre {:name "Rock", :id 45}}
+ {:id 119,
+  :title "Elephant",
+  :artists
+  [{:id 155, :name "Jack White"} {:id 160, :name "Meg White"}],
+  :tracks
+  [{:id 269, :name "Seven Nation Army"}
+   {:id 270, :name "Black Math"}
+   {:id 271, :name "Girl, You Have No Faith In Medicine"}],
+  :genre {:name "Rock", :id 45}}]
+</code>
+</pre>
+
+<a name="update"></a>
+<a href="#top">Back to Top</a>
+
 h2. "Updating" Data
 
 Carte is great for generating massive nested data structures. That is only half of the problem. How do we update them in a way that keeps the data consistent and also allows us to easily save the changes that we have made?
@@ -382,44 +546,55 @@ Let's see how Carte can help make this easier by adding some information to the 
 user> (def album ($1 :album {:title "White Blood Cells"} :with :tracks :artists))
 
 ;; Add the new track to the database
-user> (! :track {:name "Fell in Love with a Girl"})
+user> (def new-track (! :track {:name "Fell in Love with a Girl"}))
 
 ;; Add the new track and the artists to the album
 user> (def album (-> album
-                   (conj-in [:tracks] ($1 :track {:name "Fell in Love with a Girl"}))
-                   (conj-in [:artists] ($1 :artist {:name "Jack White"}))
-                   (conj-in [:artists] ($1 :artist {:name "Meg White"}))))
+                   (conj-in [:tracks] new-track)
+                   (concat-in [:artists] ($ :artist {:name "Jack White"} {:name "Meg White"}))))
 
 ;; Save changes
-user> (! album)
+user> (binding [carte.sql/*debug* true] 
+        (! album))
+["SELECT track.id AS track_id, track.name AS track_name FROM track WHERE track.album_id = ?" 125]
+updating record in :track: {:album_id 125, :name "Fell in Love with a Girl"}
+["SELECT * FROM album_artist WHERE album_artist.album_id = ?" 125]
+inserting record into :album_artist: {:artist_id 162, :album_id 125}
+["SELECT * FROM album_artist WHERE album_artist.artist_id = ? AND album_artist.album_id = ?" 162 125]
+inserting record into :album_artist: {:artist_id 167, :album_id 125}
+["SELECT * FROM album_artist WHERE album_artist.artist_id = ? AND album_artist.album_id = ?" 167 125]
+{:id 125, :title "White Blood Cells"}
 </code>
 </pre>	
 
-Query the album and you see that the changes have been saved. It is also easy to delete nested elements.
+It is also easy to delete nested elements.
 
 <pre>
 <code>
 user> ($ :album :with :artists)
- [{:name "Patrick Carney", :id 24} {:name "Dan Auerbach", :id 26}],
- :title "Magic Potion",
- :id 16}
-{:artists
- [{:name "Jack White", :id 22}
-  {:name "Patrick Keeler", :id 23}
-  {:name "Brenden Benson", :id 25}
-  {:name "Jack Lawrence", :id 28}],
- :title "Broken Boy Soldiers",
- :id 17}
-{:artists [{:name "Jack White", :id 22} {:name "Meg White", :id 27}],
- :title "Elephant",
- :id 18}
-{:artists [{:name "Jack White", :id 22} {:name "Meg White", :id 27}],
- :title "White Blook Cells",
- :id 19}
-{:artists
- [{:name "Patrick Carney", :id 24} {:name "Dan Auerbach", :id 26}],
- :title "Thickfreakness",
- :id 20}]
+[{:id 127,
+  :title "Magic Potion",
+  :artists
+  [{:id 171, :name "Patrick Carney"} {:id 173, :name "Dan Auerbach"}]}
+ {:id 128,
+  :title "Broken Boy Soldiers",
+  :artists
+  [{:id 169, :name "Jack White"}
+   {:id 170, :name "Patrick Keeler"}
+   {:id 172, :name "Brenden Benson"}
+   {:id 175, :name "Jack Lawrence"}]}
+ {:id 129,
+  :title "Elephant",
+  :artists
+  [{:id 169, :name "Jack White"} {:id 174, :name "Meg White"}]}
+ {:id 130,
+  :title "White Blood Cells",
+  :artists
+  [{:id 169, :name "Jack White"} {:id 174, :name "Meg White"}]}
+ {:id 131,
+  :title "Thickfreakness",
+  :artists
+  [{:id 171, :name "Patrick Carney"} {:id 173, :name "Dan Auerbach"}]}]
 
 user> (first *1)
 {:artists [{:name "Patrick Carney", :id 24} {:name "Dan Auerbach", :id 26}], :title "Magic Potion", :id 16}
@@ -430,7 +605,7 @@ user> (remove-in *1 [:artists] {:name "Patrick Carney"})
 user> (binding [carte.sql/*debug* true] 
         (! *1))
 updating record in :album: {:title "Magic Potion"}
-[SELECT * FROM album_artist WHERE album_artist.album_id = ? 16]
+["SELECT * FROM album_artist WHERE album_artist.album_id = ?" 16]
 deleting record in :album_artist where ["id = ?" 31]
 </code>
 </pre>
@@ -453,12 +628,63 @@ deleting record in :album where ["id = ?" 116]
 </code>
 </pre>
 
-Finally there is the <code>find-in</code> function which allows one to extract data by path.
+<a name="nested"></a>
+<a href="#top">Back to Top</a>
+
+h2. Working with Nested Data Structures
+
+In the examples above we have seen how to use <code>conj-in</code>, <code>concat-in</code> and <code>remove-in</code> to "modify" nested data structures. There are two more function that can help us here: <code>find-in</code> and <code>vary-in</code>.
+
+<code>find-in</code> allows you to query a nested data structure in order to find all values with a common path. Compare the result of the call to <code>find-in</code> below with the query results for <code>($ :album :with :artists)</code> above.
 
 <pre>
 <code>
-user> (distinct (find-in [:artists :name] ($ :album :with :artists)))
+user> (distinct 
+        (find-in [:artists :name] ($ :album :with :artists)))
 ("Dan Auerbach" "Jack White" "Patrick Keeler" "Brenden Benson" "Jack Lawrence" "Meg White" "Patrick Carney")	
+</code>
+</pre>
+
+<code>vary-in</code> produces a new data structure where all records from the given table which match the given pattern have been updated using a map of replacement values or a function. Suppose that we have the data structure produced by <code>($ :album :with :artists)</code> and we would like the change the name of the artist "Jack White" to "Jack Daniels".
+
+<pre>
+<code>
+user> (def data ($ :album :with :artists))
+#'user/data
+
+user> (vary-in data :artist {:name "Jack White"} {:name "Jack Daniels"})
+[{:artists
+  [{:name "Patrick Carney", :id 171} {:name "Dan Auerbach", :id 173}],
+  :title "Magic Potion",
+  :id 127}
+ {:artists
+  [{:name "Jack Daniels", :id 169}
+   {:name "Patrick Keeler", :id 170}
+   {:name "Brenden Benson", :id 172}
+   {:name "Jack Lawrence", :id 175}],
+  :title "Broken Boy Soldiers",
+  :id 128}
+ {:artists
+  [{:name "Jack Daniels", :id 169} {:name "Meg White", :id 174}],
+  :title "Elephant",
+  :id 129}
+ {:artists
+  [{:name "Jack Daniels", :id 169} {:name "Meg White", :id 174}],
+  :title "White Blood Cells",
+  :id 130}
+ {:artists
+  [{:name "Patrick Carney", :id 171} {:name "Dan Auerbach", :id 173}],
+  :title "Thickfreakness",
+  :id 131}]
+</code>
+</pre>
+
+The other forms of <code>vary-in</code> allow us to use a function of either the value or the entire map to produce the new value.
+
+<pre>
+<code>
+(vary-in data :artist {:name "Jack White"} {:name #(.substring % 1)})
+(vary-in data :artist {:name "Jack White"} #(assoc % :name (str (:id %))))
 </code>
 </pre>
 
@@ -477,22 +703,12 @@ user> (delete-all-test-data)
 h2. TODO
 
 <ol>
-	<li>You are putting too much into the metadata. You only need to have the values the current records fields and then the ids of the nested elements.</li>
-	<li>Finish support for one-to-many. Implement reverse one-to-many queries i.e. make this work ($ :track :with :album).</li>
-	<li>Add support for many-to-one associations.</li>
-	<li>Add every kind of association to the example database and fill it with more data.</li>
-	<li>Add support for ordering, limiting and paging results.</li>
-	<li>many-to-many from artist to album implies that there is a many-to-many from album to artist. one-to-many from album to track implies that there is a many-to-one from track to album. etc. Does a model need to be explicit about this or can it just be inferred?
-	<li>Create a concat-in function that will allow you to concatenate values into an internal list.</li>
-	<li>Change the way save-or-update works so that if you add a new record it will query the record and return the value. If you update a record it will just return the record. Fix the examples above.</li>
-	<li>If you use raw SQL to query data, the results should still have metadata so that you may use save-or-update on the resulting data structure. You will need to pass in a data model in order for this to work.</li>
-	<li>Create more functions to help with manipulating data within nested data structures. Look at clojure.walk.</li>
+	<li>Add support for limiting and paging results.</li>
+	<li>Raw SQL query results should still have metadata so that save-or-update may be used on the resulting data structure.</li>
 	<li>Clean up the code and tests.</li>
 	<li>There are times when a user might want to avoid a join and perform two separate queries, provide a function that will merge the results into one data structure which may be used like any other.</li>
-	<li>Before implementing backends for Derby and PostgreSQL, look into using ClojureQL instead of raw SQL.</li>
 	<li>Add support for Derby and PostgreSQL</li>
 	<li>Smarter Query Planning - currently there are some unnecessary queries being performed.</li>
-	<li>It would make the code much simpler if you always qualify column names in queries.</li>	
 </ol>
 
 h2. License

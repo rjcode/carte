@@ -123,7 +123,14 @@
           {:name "Jack White"}
           {:name #(.substring % 1)}
           #(-> (nth % 2) :artists first :name)
-          "ack White"))))
+          "ack White"
+
+          ;; Use a function to upate a map
+          :artist
+          {:name "Jack White"}
+          #(assoc % :name "Jack")
+          #(-> (nth % 2) :artists first :name)
+          "Jack"))))
 
 ;;
 ;; Test Query
@@ -181,6 +188,29 @@
        :artist
        [:with [:album :with :tracks]] :=> {:joins {:artist [:albums]
                                                    :album [:tracks]}}))
+
+(deftest test-query
+  (let [& (partial query sample-db)]
+    (is (= (& :album) {:root-table :album}))
+    (let [album-query (& :album :with :artists :tracks :genre)]
+      (is (= album-query {:root-table :album
+                          :joins {:album [:artists :tracks :genre]}}))
+      (is (= (& album-query (& :album :order-by :title))
+             {:root-table :album
+              :order-by [:album [:title :asc]]
+              :joins {:album [:artists :tracks :genre]}}))
+      (is (= (& album-query (& :artist :order-by :name))
+             {:root-table :album
+              :order-by [:artist [:name :asc]]
+              :joins {:album [:artists :tracks :genre]}}))
+      (is (= (& album-query (& :genre :order-by :name))
+             {:root-table :album
+              :order-by [:genre [:name :asc]]
+              :joins {:album [:artists :tracks :genre]}}))
+      (is (= (& album-query (& :genre {:name "Rock"}))
+             {:root-table :album
+              :criteria {:genre [{:name "Rock"}]}              
+              :joins {:album [:artists :tracks :genre]}})))))
 
 (deftest test-dequalify-joined-map
   (t "test dequalify joined map"
@@ -477,7 +507,7 @@
 (deftest test-fetch
   (if *hit-database*
     (with-test-database default-test-data
-     (are [q f expected] (= (f q) expected)
+      (are [q f expected] (= (f q) expected)
          
           (fetch db ["select * from album"]) count (count albums)
          
@@ -614,6 +644,10 @@
   ;; TODO - Test these examples
   ($ :album [:title] {:title "Y*"} :order-by :title [:id :desc] :with :genre)
   ($ :album :order-by :title :with [:artist :order-by :name])
+  
+  ;; These do not work
+  ($ :album :with [:genre {:name "Rock"}])
+  ($ :album :with [:genre :order-by :name])  
   )
 
 ;;
@@ -678,13 +712,13 @@
           #(set (find-in [:albums :title] [%]))
           #{"Elephant" "Broken Boy Soldiers"})
      
-     ;; Test adding a new album
+     ;; Add a new album
      (let [result (! :album {:title "New Album"})
            rec ($1 :album {:title "New Album"})]
        (is (= (:title rec) "New Album"))
        (is (= result rec)))
      
-     ;; Test that deleting an album will also delete the associated tracks
+     ;; Deleting an album will also delete the associated tracks
      (let [all-tracks (count ($ :track))
            mp-tracks (count ($ :track :with [:album {:title "Magic Potion"}]))
            album (-> ($1 :album {:title "Magic Potion"} :with :artists)

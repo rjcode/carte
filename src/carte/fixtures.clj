@@ -158,7 +158,7 @@
              (belongs-to :album))
       (album [:id :title]
              (many-to-many :artist)
-             (many-to-one :genre :genre_id))
+             (many-to-one :genre))
       (artist [:id :name])))
 
 (def sample-db (merge db sample-data-model))

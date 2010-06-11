@@ -40,7 +40,7 @@
 (defn concat-in [data ks v]
   {:pre [(vector? v)]}
   (let [before (get-in data ks)]
-    (assoc-in data ks (concat before v))))
+    (assoc-in data ks (vec (concat before v)))))
 
 (defn remove-in [data ks v]
   (let [coll (get-in data ks)]
@@ -83,13 +83,15 @@
   (let [m (vary-within-map m type pattern new-vals)]
     (if (and (= type (-> m meta ::table))
              (= (select-keys m (keys pattern)) pattern))
-      (reduce (fn [result [key new-value]]
-                (assoc result key
-                       (if (fn? new-value)
-                         (new-value (key result))
-                         new-value)))
-              m
-              new-vals)
+      (if (fn? new-vals)
+        (new-vals m)
+        (reduce (fn [result [key new-value]]
+                  (assoc result key
+                         (if (fn? new-value)
+                           (new-value (key result))
+                           new-value)))
+                m
+                new-vals))
       m)))
 
 (defn vary-in [coll type pattern new-vals]
@@ -172,6 +174,11 @@
                      (parse-query-part table query-part)
                      (parse-order-by-part table order-part)
                      (parse-join-part model table join-part))))
+
+(defn compile-query
+  "Transform a sequence of query parameters into a query map."
+  [model table q]
+  (merge {:root-table table} (parse-query model table q)))
 
 (defn- m-dissoc [m & keys]
   (apply dissoc (into {} m) keys))
@@ -317,21 +324,34 @@
        (map #(single-record-flat->nested model table joins %)
             (first records-seq)))))))
 
-(defn execute-query-plan [db table q]
-  (let [parsed-query (parse-query (:model db) table q)]
-    (->> (selects db table parsed-query)
+(defn execute-query-plan [db query]
+  (let [table (:root-table query)]
+    (->> (selects db table query)
          (execute-multiple-selects db table)
-         (flat->nested db table (:joins parsed-query)))))
+         (flat->nested db table (:joins query)))))
+
+(defn query-merge [a b]
+  (cond (keyword? a) a
+        :else concat))
+
+(defn query [db table-or-query & q]
+  (if (keyword? table-or-query)
+    (compile-query (:model db) table-or-query q)
+    (apply deep-merge-with query-merge table-or-query q)))
 
 (defn fetch [db & q]
   (let [first-arg (first q)
         q (rest q)]
     (cond (vector? first-arg) (sql-query db first-arg)
-          (keyword? first-arg) (execute-query-plan db first-arg q)
+          (keyword? first-arg)
+          (execute-query-plan db
+                              (compile-query (:model db) first-arg q))
+          (map? first-arg) (execute-query-plan db first-arg)
           :else (throw
                  (Exception.
                   (str "Invalid fetch syntax. "
-                       "First arg is not raw sql or a table."))))))
+                       "First arg is not a vector, map or keyword "
+                       "(raw sql, query map or table)."))))))
 
 (defn fetch-one
   "Same as fetch but we expect to return a single record. Throws and
