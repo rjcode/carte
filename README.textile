@@ -90,7 +90,7 @@ A data model is created using the <code>model</code> macro. Here we create the d
 </code>
 </pre>
 
-The above model assumes that we are using the convention of singular table names and can therefore figure out the plural names and the names of the link tables and keys. Some people like to use a plural table names. In order to solve this problem, I plan to add a wrapper macro or function that will allow the developer to specify the convention that should be used.
+The above model assumes that we are using the convention of singular table names and can therefore figure out the plural names and the names of the link tables and keys. Some people like to use plural table names. In order to solve this problem, I plan to add a wrapper macro or function that will allow the developer to specify the convention that should be used.
 
 One may also be explicit in defining the model.
 
