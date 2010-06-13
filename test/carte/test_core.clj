@@ -18,33 +18,33 @@
 
 (def fixture-nested
      (add-original-meta
-      [{:id 1 
-        :title "A"
-        :genre {:id 1 :name "a"}
-        :artists [{:id 1 :name "x"}]} 
-       {:id 2 
-        :title "B"
-        :genre {:id 1 :name "a"}
-        :artists [{:id 1 :name "x"}]} 
-       {:id 3 
-        :title "C"
-        :genre {:id 2 :name "b"}
-        :artists [{:id 2 :name "y"}]}]))
+      [{:title "A"
+        :genre {:name "a"}
+        :artists [{:name "x"}]} 
+       {:title "B"
+        :genre {:name "a" :albums [{:name "B"}]}
+        :artists [{:name "y" :bands [{:name "p"}]}]}]))
 
 (deftest test-conj-in
-  (is (= (conj-in (first fixture-nested) [:artists] {:id 3 :name "z"})
-         {:id 1 
-          :title "A"
-          :genre {:id 1 :name "a"}
-          :artists [{:id 1 :name "x"} {:id 3 :name "z"}]})))
+  (is (= (conj-in (first fixture-nested) [:artists] {:name "z"})
+         {:title "A"
+          :genre {:name "a"}
+          :artists [{:name "x"} {:name "z"}]}))
+  (is (= (first (conj-in fixture-nested [0 :artists] {:name "z"}))
+         {:title "A"
+          :genre {:name "a"}
+          :artists [{:name "x"} {:name "z"}]}))
+  (is (= (last (conj-in fixture-nested [1 :artists 0 :bands] {:name "z"}))
+         {:title "B"
+          :genre {:name "a" :albums [{:name "B"}]}
+          :artists [{:name "y" :bands [{:name "p"} {:name "z"}]}]})))
 
 (deftest test-concat-in
-  (is (= (concat-in (first fixture-nested) [:artists] [{:id 3 :name "z"}
-                                                       {:id 4 :name "m"}])
-         {:id 1 
-          :title "A"
-          :genre {:id 1 :name "a"}
-          :artists [{:id 1 :name "x"} {:id 3 :name "z"} {:id 4 :name "m"}]})))
+  (is (= (concat-in (first fixture-nested) [:artists] [{:name "z"}
+                                                       {:name "m"}])
+         {:title "A"
+          :genre {:name "a"}
+          :artists [{:name "x"} {:name "z"} {:name "m"}]})))
 
 (deftest test-find-in
   (are [query _ expected]

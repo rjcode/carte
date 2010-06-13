@@ -7,6 +7,7 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns carte.core
+  "Relational mapping, and data transformation."
   (:use (carte sql model)
         (clojure [set :only (difference)])
         (clojure.contrib [map-utils :only (deep-merge-with)]))
@@ -33,7 +34,11 @@
              m)
       metadata)))
 
-(defn conj-in [data ks v]
+(defn conj-in
+  "Returns a new collection with v added to a vector in a nested associative
+   data structure. ks is a sequence of keys that will be used to locate the
+   target collection."
+  [data ks v]
   (let [size (count (get-in data ks))]
     (assoc-in data (conj ks size) v)))
 
