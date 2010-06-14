@@ -4,7 +4,7 @@ h1. Carte
 
 Carte is relational mapping for Clojure. It maps nested immutable data structures to an underlying relational database management system. It is meant only to provide simple access and manipulation of relational data, it is not meant to be a replacement for SQL or relational algebra.
 
-The basic idea is that you tell Carte about the structure of the database that you are dealing with. When a query is executed, Carte will figure out a query plan, execute it and then compile the results into a nested data structure. Carte provides functions to make it easier to manipulate these data structures. Finally, Carte can save entire data structures, or even lists of data structures, with one API call, automatically figuring out which records need to be saved, updated and deleted.
+The basic idea is that you tell Carte about the structure of the database that you are dealing with, when a query is executed, Carte will figure out a query plan, execute it and then compile the results into a nested data structure. Carte provides functions to make it easier to manipulate these data structures. Finally, Carte can save entire data structures, or even lists of data structures, with one API call, automatically figuring out which records need to be saved, updated and deleted.
 
 The project is currently being developed against MySQL but the plan is to make it database independent. I plan to implement support for MySQL, Derby and ProsgreSQL. Once this is done, it should be easy for others to add support for additional RDMSs.
 
@@ -12,8 +12,11 @@ As a side feature, Carte also includes some very simple support for database mig
 
 Every disclaimer goes here...
 
-This document walks through some examples, showing the current functionality of Carte. If you would like to follow along with the examples then you will need to have MySQL, Git and "Leiningen":http://github.com/technomancy/leiningen installed. Once I have all of the basic features working with a stable API, I will push a first version to Clojars.
+This document walks through some examples, showing the current functionality of Carte. If you would like to follow along with the examples then you will need to have MySQL, Git and "Leiningen":http://github.com/technomancy/leiningen installed.
 
+h3. Table of Contents
+
+* <a href="#leiningen">Leiningen Usage</a>
 * <a href="#setup">Setting up MySQL and Cloning Carte</a>
 * <a href="#config">Configuring Carte</a>
 * <a href="#queries">Example Queries</a>
@@ -21,7 +24,20 @@ This document walks through some examples, showing the current functionality of 
 * <a href="#update">"Updating" Data</a>
 * <a href="#nested">Working with Nested Data Structures</a>
 
+<a name="leiningen"></a>
+
+h2. Leiningen Usage
+
+The current version of Carte is an early prototype so it is not recommended that you use it in a production project. Having said that, I am using it in a production project and therefore need to have it in Clojures. You may add Carte to your project Leiningen project by adding the following to your <code>:dependences</code>:
+
+<pre>
+<code>
+[carte/carte "0.1.0"]
+</code>
+</pre>
+
 <a name="setup"></a>
+<a href="#top">Back to Top</a>
 
 h2. Setting up MySQL and Cloning Carte
 
@@ -92,7 +108,7 @@ A data model is created using the <code>model</code> macro. Here we create the d
 
 The above model assumes that we are using the convention of singular table names and can therefore figure out the plural names and the names of the link tables and keys. Some people like to use plural table names. In order to solve this problem, I plan to add a wrapper macro or function that will allow the developer to specify the convention that should be used.
 
-One may also be explicit in defining the model.
+We may also be explicit in defining the model.
 
 <pre>
 <code>
@@ -141,7 +157,7 @@ user> (default-test-data)
 </code>
 </pre>
 
-First we see a basic query for all records in a table. Also notice that each map that we get back from a query has metadata which contains the table that the record came from as well as the original value of the record. This allows Carte to know where each record should be saved and if it needs to be saved. It also means that, in order to get the full benefit of Carte, when you modify a data structure you should be careful to preserve the metadata.
+First we see a basic query for all records in a table. Also notice that each map that we get back from a query has metadata which contains the table that the record came from as well as the original value of the record. This allows Carte to know where each record should be saved and if it needs to be saved. It also means that, in order to get the full benefit of Carte, when you modify a data structure, you should be careful to preserve the metadata.
 
 <pre>
 <code>
@@ -158,7 +174,7 @@ user> (meta (first ($ :album)))
 </code>
 </pre>
 
-The queries below show various ways of selecting specific records from a single table. Note that we can select specific columns by including a vector of column names after the table. As it is now implemented, the :id is always returned because it is needed in order to be able to save or update a record. The corresponding SQL is shown above each query.
+The queries below show various ways of selecting specific records from a single table. Note that we can select specific columns by including a vector of column names after the table. As it is now implemented, the :id is always returned because it is needed to save or update a record. The corresponding SQL is shown above each query.
 
 <pre>
 <code>
@@ -364,7 +380,7 @@ user> ($ :artist :order-by :name :with [:album :with [:track :order-by :name]])
      {:id 39, :name "Your Touch"}]}]}
   ...]
 
-user> ($ :artist :with [:album :with [:track {:name "Call*"}]]))
+user> ($ :artist :with [:album :with [:track {:name "Call*"}]])
 [{:albums
   [{:tracks [{:name "Call It a Day", :id 47}],
     :title "Broken Boy Soldiers",
@@ -397,7 +413,7 @@ Finally, take a look at the SQL generated by our last query.
 <pre>
 <code>
 user> (binding [carte.sql/*debug* true]
-        ($ :artist :with [:album :with [:track {:name "Call*"}]])))
+        ($ :artist :with [:album :with [:track {:name "Call*"}]]))
 ["SELECT artist.id AS artist_id, artist.name AS artist_name, album.id AS album_id, album.title AS album_title, 
          track.id AS track_id, track.name AS track_name 
   FROM artist 
@@ -443,18 +459,12 @@ user> ($ :artist :with album-query)
 </code>
 </pre>
 
-There is also a much better way to compose queries using the <code>query</code> function. This function takes a model and then a table-spec or one or more compiled queries. If it is passed a table-spec, it will return a compiled query that can be executed using <code>fetch</code>. If it is passed a number of compiled queries, it will compose them into a new compiled query. As we did for <code>fetch</code> and <code>save-or-update</code>, I will create a shorthand closure.
+There is also a much better way to compose queries using the <code>query</code> function. This function allows us to create reusable query templates. It takes a model and then a table-spec or one or more compiled queries. If it is passed a table-spec, it will return a compiled query that can be executed using <code>fetch</code>. If it is passed a number of compiled queries, it will compose them into a new compiled query. As we did for <code>fetch</code> and <code>save-or-update</code>, we will create a shorthand closure.
 
 <pre>
 <code>
 (def & (partial query sample-db))
-</code>
-</pre>
 
-This allows us to create query templates that can then be modified and used later.
-
-<pre>
-<code>
 user> (def album-query (& :album :with :artists :tracks :genre))
 #'user/album-query
 
@@ -633,9 +643,9 @@ deleting record in :album where ["id = ?" 116]
 
 h2. Working with Nested Data Structures
 
-In the examples above we have seen how to use <code>conj-in</code>, <code>concat-in</code> and <code>remove-in</code> to "modify" nested data structures. There are two more function that can help us here: <code>find-in</code> and <code>vary-in</code>.
+In the examples above we have seen how to use <code>conj-in</code>, <code>concat-in</code> and <code>remove-in</code> to "modify" nested data structures. There are two more functions that can help us here: <code>find-in</code> and <code>vary-in</code>.
 
-<code>find-in</code> allows you to query a nested data structure in order to find all values with a common path. Compare the result of the call to <code>find-in</code> below with the query results for <code>($ :album :with :artists)</code> above.
+<code>find-in</code> allows us to query a nested data structure in order to find all values with a common path. Compare the result of the call to <code>find-in</code> below with the query results for <code>($ :album :with :artists)</code> above.
 
 <pre>
 <code>
