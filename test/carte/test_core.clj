@@ -46,6 +46,12 @@
           :genre {:name "a"}
           :artists [{:name "x"} {:name "z"} {:name "m"}]})))
 
+(deftest test-remove-in
+  (is (= (remove-in (last fixture-nested) [:artists] {:name "y"})
+         {:title "B"
+          :genre {:name "a" :albums [{:name "B"}]}
+          :artists []})))
+
 (deftest test-find-in
   (are [query _ expected]
        (= (find-in query

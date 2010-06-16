@@ -1,6 +1,6 @@
-<a name="top"></a>
-
 h1. Carte
+
+<a name="top"></a>
 
 Carte is relational mapping for Clojure. It maps nested immutable data structures to an underlying relational database management system. It is meant only to provide simple access and manipulation of relational data, it is not meant to be a replacement for SQL or relational algebra.
 
@@ -20,7 +20,7 @@ h3. Table of Contents
 * <a href="#setup">Setting up MySQL and Cloning Carte</a>
 * <a href="#config">Configuring Carte</a>
 * <a href="#queries">Example Queries</a>
-* <a href="#composition">Query Composition</a>
+* <a href="#composition">Query Syntax and Composition</a>
 * <a href="#update">"Updating" Data</a>
 * <a href="#nested">Working with Nested Data Structures</a>
 
@@ -427,27 +427,24 @@ user> (binding [carte.sql/*debug* true]
 <a name="composition"></a>
 <a href="#top">Back to Top</a>
 
-h2. Query Composition
+h2. Query Syntax and Composition
 
-From the above examples we can see two important things about queries: they are just data and they have a very regular syntax. Each query looks like this:
-
-<pre>
-<code>
-(apply $ table-spec)
-</code>
-</pre>
-
-where table-spec is defined as the sequence
+From the above examples we can see two important things about queries: they are just data and they have a very regular syntax. There are several specific examples above of query syntax. Here is the general syntax in psudo-BNF.
 
 <pre>
 <code>
-[table [columns] [criteria*] [order-by] [:with table-spec*]]	
+<query>        ::= <table> [<columns>] [<criteria>] [<order>] <with>*
+<table>        ::= keyword
+<columns>      ::= a vector of keywords (:id will always be included in query results)
+<criteria>     ::= one or more Clojure maps ('or' within a map, 'and' each map)
+<order>        ::= ":order-by" <column-order>+
+<column-order> ::= keyword for column | "[" keyword for column ":asc" | ":desc" "]"
+<with>         ::= ":with" <join>+
+<join>         ::= <alias> | "[" <query> "]"
 </code>
 </pre>
 
-There is also sugar that allows you to use the alias for a table in place of a table-spec.
-
-Because queries are just data and there is regular syntax, it is very easy to programmatically generate and manipulate queries. For example the following sequence of expressions will work.
+Because queries are just data and there is regular syntax, it is very easy to programmatically generate and manipulate queries. For example, the following sequence of expressions will work.
 
 <pre>
 <code>

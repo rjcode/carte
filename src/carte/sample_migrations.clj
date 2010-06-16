@@ -123,3 +123,11 @@
                  (col :album_id :id))
    :back
    (drop-table :track)})
+
+(defn migration-20100615000 []
+  {:forward
+   (create-table :track
+                 (col :name :string :not-null)
+                 (col :album_id :id))
+   :back
+   (drop-table :track)})

@@ -42,16 +42,22 @@
   (let [size (count (get-in data ks))]
     (assoc-in data (conj ks size) v)))
 
-(defn concat-in [data ks v]
+(defn concat-in
+  "Same as conj-in but concatinates values."
+  [data ks v]
   {:pre [(vector? v)]}
   (let [before (get-in data ks)]
     (assoc-in data ks (vec (concat before v)))))
 
-(defn remove-in [data ks v]
+(defn remove-in
+  "Remove the element from the nested collection that matches the given
+   pattern."
+  [data ks pattern]
   (let [coll (get-in data ks)]
     (assoc-in data
               ks
-              (filter #(not (= v (select-keys % (keys v)))) coll))))
+              (filter #(not (= pattern (select-keys % (keys pattern))))
+                      coll))))
 
 (defn find-in [ks data]
   (loop [ks ks
