@@ -32,7 +32,7 @@ The current version of Carte is an early prototype so it is not recommended that
 
 <pre>
 <code>
-[carte/carte "0.1.0"]
+[carte/carte "0.1.1"]
 </code>
 </pre>
 
