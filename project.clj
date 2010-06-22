@@ -1,4 +1,4 @@
-(defproject carte/carte "0.1.0"
+(defproject carte/carte "0.1.1"
   :description "Relational Persistence for Clojure."
   :dependencies [[org.clojure/clojure "1.1.0"]
                  [org.clojure/clojure-contrib "1.1.0"]
