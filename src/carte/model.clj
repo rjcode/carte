@@ -180,7 +180,7 @@
   {:model (apply deep-merge-with association-merge body)})
 
 (defmacro model [& body]
-  (let [new-body (map #(apply list 'table %) body)]
+  (let [new-body (map #(apply list 'carte.model/table %) body)]
     `(model* ~@new-body)))
 
 (defn find-join-by

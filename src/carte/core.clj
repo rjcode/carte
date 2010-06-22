@@ -343,7 +343,7 @@
 
 (defn query-merge [a b]
   (cond (keyword? a) a
-        :else concat))
+        :else (concat a b)))
 
 (defn query [db table-or-query & q]
   (if (keyword? table-or-query)

@@ -5,7 +5,8 @@
                  [inflections "0.3"]]
   :dev-dependencies [[lein-clojars "0.5.0-SNAPSHOT"]
                      [jline "0.9.94"]
-                     [mysql/mysql-connector-java "5.1.6"]]
+                     [mysql/mysql-connector-java "5.1.6"]
+                     [deview/deview-server "0.1.0"]]
   :namespaces [carte.core
                carte.sql
                carte.model
