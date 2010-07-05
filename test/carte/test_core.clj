@@ -251,24 +251,26 @@
           {:id 1 :name "one"})))
 
 (deftest test-put-original-in-meta
-  (are [record expected] (= (orig-key (meta (put-original-in-meta record)))
-                            expected)
-       {:id 1 :x "a"} {:id 1 :x "a"}
-       
-       {:id 1 :x "a" :l [{:id 2 :y "b"} {:id 5 :y "c"}]}
-       {:id 1 :x "a" :l [{:id 2 :y "b"} {:id 5 :y "c"}]}
-
-       {:id 1 :x "a" :l {:id 2 :y "b"}}
-       {:id 1 :x "a" :l {:id 2 :y "b"}}
-
-       {:id 1 :x "a" :l [{:id 2 :y "b" :l [{:id 5 :y "c"}]}]}
-       {:id 1 :x "a" :l [{:id 2 :y "b"}]}
-
-       {:id 1 :x "a" :l [{:id 2 :y "b" :l {:id 5 :y "c"}}]}
-       {:id 1 :x "a" :l [{:id 2 :y "b"}]}
-
-       {:id 1 :x "a" :l {:id 2 :y "b" :l {:id 5 :y "c"}}}
-       {:id 1 :x "a" :l {:id 2 :y "b"}}))
+  (t "put original record in metadata"
+     (let [tf (fn [record]
+                (orig-key (meta (put-original-in-meta record))))]
+       (t "with no nesting"
+          (is (= (tf {:id 1 :x "a"}) {:id 1 :x "a"})))
+       (t "with nested sequence"
+          (is (= (tf {:id 1 :x "a" :l [{:id 2 :y "b"} {:id 5 :y "c"}]})
+                 {:id 1 :x "a" :l [{:id 2 :y "b"} {:id 5 :y "c"}]})))
+       (t "with nested map"
+          (is (= (tf {:id 1 :x "a" :l {:id 2 :y "b"}})
+                 {:id 1 :x "a" :l {:id 2 :y "b"}})))
+       (t "with sequence within sequence"
+          (is (= (tf {:id 1 :x "a" :l [{:id 2 :y "b" :l [{:id 5 :y "c"}]}]})
+                 {:id 1 :x "a" :l [{:id 2 :y "b"}]})))
+       (t "with map within sequence"
+          (is (= (tf {:id 1 :x "a" :l [{:id 2 :y "b" :l {:id 5 :y "c"}}]})
+                 {:id 1 :x "a" :l [{:id 2 :y "b"}]})))
+       (t "with map within map"
+          (is (= (tf {:id 1 :x "a" :l {:id 2 :y "b" :l {:id 5 :y "c"}}})
+                 {:id 1 :x "a" :l {:id 2 :y "b"}}))))))
 
 (defn verify-map-metadata [m]
   (let [md (meta m)
@@ -409,39 +411,56 @@
        {table-key :artist orig-key {:id 1 :name "A"}}))
 
 (deftest test-transform-query-plan-results
-  (let [t-q-p-r
-        (fn [model res]
-          (flat->nested model
-                        :page
-                        (:joins
-                         (parse-query model
-                                      :page
-                                      [:with :categories]))
-                        res))]
+  (let [tf (fn [model res]
+             (flat->nested model
+                           :page
+                           (:joins
+                            (parse-query model
+                                         :page
+                                         [:with :categories]))
+                           res))]
     (t "test transform query plan results"
-       (let [result (t-q-p-r fixture-model-many-to-many
-                             fixture-join-flat)
+       (let [result (tf fixture-model-many-to-many
+                        fixture-join-flat)
              first-result (first result)
              categories (-> result second :categories)
              first-cat (first categories)]
-         (t "- is the entire structure correct"
+         (t ": is the entire structure correct"
             (is (= result fixture-join-nested)))
-         (t "- does a specific category contain the correct metadata"
+         (t ": does a specific category contain the correct metadata"
             (is (= (meta first-cat)
                    {table-key :category
                     orig-key first-cat})))
-         (t "- does metadata for category contain the original value"
+         (t ": does metadata for category contain the original value"
             (is (= first-cat (-> first-cat meta orig-key)))))
        (t "with common prefixes"
-          (is (= (t-q-p-r (model
-                           (page_category [:id :name])
-                           (page [:id :name]
-                                 (one-to-many categories
-                                              :page_category :page_id)))
-                          [[{:page_id 1 :page_name "one" :page_category_id 1
-                             :page_category_name "c1"}]])
+          (is (= (tf (model
+                      (page_category [:id :name])
+                      (page [:id :name]
+                            (one-to-many categories
+                                         :page_category :page_id)))
+                     [[{:page_id 1 :page_name "one" :page_category_id 1
+                        :page_category_name "c1"}]])
                  [{:id 1 :name "one"
                    :categories [{:id 1 :name "c1"}]}]))))))
+
+(deftest test-flat->nested-edge-cases
+  (t "test flat->nested edge cases"
+     (t "control case"
+        (is (= (flat->nested (model
+                              (page [:id :name :category]))
+                             :page
+                             []
+                             [[{:page_id 1 :page_name "n" :page_category "c"}]])
+               [{:id 1 :name "n" :category "c"}])))
+     (t "when table field is the same as another table"
+        (is (= (flat->nested (model
+                              (page_category [:id :name])
+                              (page [:id :name :category]))
+                             :page
+                             []
+                             [[{:page_id 1 :page_name "n" :page_category "c"}]])
+               [{:id 1 :name "n" :category "c"}])))))
 
 (defn meta-rec [table rec]
   (with-meta rec {table-key table orig-key rec}))

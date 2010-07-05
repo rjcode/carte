@@ -198,9 +198,14 @@
   (keyword
    (.substring s (+ 1 (count prefix)))))
 
+(defn prefixed? [qualified prefix other]
+  (and (.startsWith qualified prefix)
+       (not (some true? (map #(and (not (.equals qualified %))
+                                   (.startsWith qualified %)) other)))))
+
 (defn dequalify-joined-map
   "Create a map that has dequalified key names for this table. The input
-   map will have the table named appended to the front of each key."
+   map will have the table name appended to the front of each key."
   [model table m]
   (let [prefix (name table)
         other-tables (->> (map name (keys model))
@@ -212,9 +217,7 @@
                                  (keyword-without-prefix prefix k)
                                  (key b))
                              (val b))
-                      (and (.startsWith k prefix)
-                           (not (some true? (map #(.startsWith k %)
-                                                 other-tables))))
+                      (prefixed? k prefix other-tables)
                       (assoc a (keyword-without-prefix prefix k) (val b))
                       :else a)))
             {}
