@@ -10,8 +10,9 @@
   "Simple layer on top of clojure.contrib.sql and functions for generating
    sql."
   (:use (carte model)
-        (clojure.contrib [sql :as sql]
-                         [str-utils :only (re-gsub re-split)])))
+        (clojure.contrib [str-utils :only (re-gsub re-split)]))
+  (:require (clojure.contrib [sql :as sql])))
+
 
 (def *debug* false)
 
@@ -408,3 +409,83 @@
        (vec (cons (str select-part " WHERE " (first where-part) order-by-part)
                   (rest where-part)))
        [(str select-part order-by-part)]))])
+
+;;
+;; Schema Creation and Modification for use with Migrations
+;;
+
+(defn drop-table-fn [table]
+  (fn [db]
+    (sql-do-commands db
+                     (str "DROP TABLE " (name table)))))
+
+(defn create-table-fn [table & spec]
+  (fn [db]
+    (sql-do-commands
+     db
+     (str
+      "CREATE TABLE " (name table)
+      " (id bigint(20) NOT NULL AUTO_INCREMENT,"
+      (apply str (interpose "," spec))
+         ", PRIMARY KEY (id)
+         ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"))))
+
+(defn alter-table-fn [table spec]
+  (fn [db]
+    (sql-do-commands
+     db
+     (str "ALTER TABLE " (name table)
+          spec))))
+
+(defn add-col [col & spec]
+  (str " ADD COLUMN " col
+       (let [after (drop-while #(not (= % :after)) spec)]
+         (if (seq after)
+           (str " AFTER " (name (last after)) ";")))))
+
+(defn drop-col [col]
+  (str " DROP COLUMN " (name col) ";"))
+
+(defmulti col (fn [_ type & spec] type))
+
+(defmethod col :string [col-name type & spec]
+  (str (name col-name) " varchar(255)"
+       (if (contains? (set spec) :not-null)
+         " NOT NULL"
+         "")))
+
+(defmethod col :id [col-name type & spec]
+  (str (name col-name) " bigint(20)"
+       (if (contains? (set spec) :not-null)
+         " NOT NULL"
+         "")))
+
+(defmethod col :char [col-name type & spec]
+  (str (name col-name) " char(1)"
+       (if (contains? (set spec) :not-null)
+         " NOT NULL"
+         "")))
+
+(defn constraint
+  ([this-col _ table that-col]
+     (constraint this-col table that-col))
+  ([this-col table that-col]
+     (let [this-name (name this-col)
+           foreign-key (str "FK_" this-name "_key")]
+       (str "KEY " foreign-key " (" this-name "),"
+            "CONSTRAINT " foreign-key " FOREIGN KEY (" this-name ") "
+            "REFERENCES " (name table) " (" (name that-col) ")"))))
+
+(defn unique-key [col-name]
+  (let [n (name col-name)]
+    (str "UNIQUE KEY " n "(" n ")")))
+
+(defn create-key-value-table [create-table-fn]
+  (create-table-fn
+    "create table key_value 
+       (id bigint not null auto_increment,
+        key_name varchar(255) not null,
+        value varchar(255) not null,
+        primary key (id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"))
+

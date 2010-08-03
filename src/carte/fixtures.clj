@@ -8,8 +8,7 @@
 
 (ns carte.fixtures
   (:use (clojure test)
-        (carte sql model core migrations
-               [sample-migrations :only (create-key-value-table)])))
+        (carte sql model core migrations)))
 
 (defmacro t [desc & body] `(testing ~desc ~@body))
 
