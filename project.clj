@@ -5,5 +5,5 @@
                  [inflections "0.4-SNAPSHOT"]]
   :dev-dependencies [[jline "0.9.94"]
                      [mysql/mysql-connector-java "5.1.6"]
-                     [deview/deview-server "1.2.0-SNAPSHOT"]]
+                     [deview/lein-deview "1.2.0-SNAPSHOT"]]
   :deview-server 9002)

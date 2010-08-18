@@ -185,7 +185,12 @@
         :joins {:page [:versions]}}
        [:order-by :name [:id :desc] :with [:version :order-by :id]] :=>
        {:order-by [:page [:name :asc :id :desc] :version [:id :asc]]
-        :joins {:page [:versions]}})
+        :joins {:page [:versions]}}
+       [:limit 10] :=> {:limit 10}
+       [:with :versions :limit 10] :=> {:joins {:page [:versions]} :limit 10}
+       [:with :versions :page 2 10] :=>
+       {:joins {:page [:versions]} :page {:num 2 :size 10}}
+       )
   
   (are [table query _ expected] (= (parse-query (:model sample-data-model)
                                                 table
@@ -533,12 +538,16 @@
   (if *hit-database*
     (with-test-database default-test-data
       (are [q f expected] (= (f q) expected)
+
+           (count-records db :track)
+           identity
+           12
+           
+           (fetch db ["select * from album"]) count (count albums)
          
-          (fetch db ["select * from album"]) count (count albums)
-         
-          (fetch db ["select * from album where title = \"Magic Potion\""])
-          #(:title (first %))
-          "Magic Potion"
+           (fetch db ["select * from album where title = \"Magic Potion\""])
+           #(:title (first %))
+           "Magic Potion"
          
           (fetch-one db ["select * from album where title = \"Magic Potion\""])
           :title
@@ -649,7 +658,28 @@
           ($ :album :order-by :title)
           #(map :title %)
           ["Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"
-           "White Blood Cells"])
+           "White Blood Cells"]
+          
+          ($ :album :order-by :title :with [:artist :order-by :name])
+          #(map :name (:artists (first %)))
+          ["Brenden Benson" "Jack Lawrence" "Jack White" "Patrick Keeler"]
+          
+          ($ :artist [:name] {:name "P*"} :order-by :name
+             :with [:album :order-by [:title :desc]])
+          #(map :title (:albums (first %)))
+          ["Thickfreakness" "Magic Potion"]
+          
+          ($ :artist :order-by :name :limit 2)
+          #(map :name %)
+          ["Brenden Benson" "Dan Auerbach"]
+
+          ($ :track :order-by :name :page 1 3)
+          #(map :name %)
+          ["Hands" "Just Got To Be" "Level"]
+
+          ($ :track :order-by :name :page 2 5)
+          #(map :name %)
+          ["You're the One" "Your Touch"])
     
      (let [result ($1 :album {:title "Magic Potion"})]
        (is (= (:title result) "Magic Potion"))
@@ -660,20 +690,6 @@
            r2 ($ :album :with q)]
        (is (= (set (map :name r1)) the-white-stripes))
        (is (= (set (map :title r2)) #{"Elephant" "Broken Boy Soldiers"}))))))
-
-(comment
-  
-  ;; Order-by syntax
-  ($ :album :order-by :title :id)
-
-  ;; TODO - Test these examples
-  ($ :album [:title] {:title "Y*"} :order-by :title [:id :desc] :with :genre)
-  ($ :album :order-by :title :with [:artist :order-by :name])
-  
-  ;; These do not work
-  ($ :album :with [:genre {:name "Rock"}])
-  ($ :album :with [:genre :order-by :name])  
-  )
 
 ;;
 ;; Test Save, Update and Delete

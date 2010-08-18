@@ -176,15 +176,36 @@
                (rest query)))
       result)))
 
+(defn parse-limit-part [query]
+  (if (seq query)
+    (let [n (first query)
+          c (rest query)]
+      (if (= n :limit)
+        {:limit (first c)}
+        {}))
+    {}))
+
+(defn parse-page-part [query]
+  (if (seq query)
+    (let [n (first query)
+          c (rest query)]
+      (if (= n :page)
+        {:page {:num (first c) :size (last c)}}
+        {}))
+    {})) 
+
 (defn parse-query
-  "Create a map with keys :attrs :criteria and :joins"
+  "Create a map with keys :attrs :criteria :joins :order-by :limit and :page"
   [model table q]
-  (let [[query-part join-part] (split-with #(not (= % :with)) q)
+  (let [[q limit-or-page] (split-with #(not (contains? #{:limit :page} %)) q)
+        [query-part join-part] (split-with #(not (= % :with)) q)
         [query-part order-part] (split-with #(not (= % :order-by)) query-part)]
     (deep-merge-with concat
                      (parse-query-part table query-part)
                      (parse-order-by-part table order-part)
-                     (parse-join-part model table join-part))))
+                     (parse-join-part model table join-part)
+                     (parse-limit-part limit-or-page)
+                     (parse-page-part limit-or-page))))
 
 (defn compile-query
   "Transform a sequence of query parameters into a query map."
@@ -347,6 +368,11 @@
 (defn query-merge [a b]
   (cond (keyword? a) a
         :else (concat a b)))
+
+(defn count-records
+  "Return the total number of records in this table."
+  [db table]
+  (sql-count db table))
 
 (defn query [db table-or-query & q]
   (if (keyword? table-or-query)

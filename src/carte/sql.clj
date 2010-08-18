@@ -92,6 +92,13 @@
             []
             selects)))
 
+(defn sql-count
+  "Return the number of records in the table."
+  [db table]
+  (let [result (sql-query db [(str "SELECT COUNT(*) AS c FROM "
+                                   (name table))])]
+    (:c (first result))))
+
 ;;
 ;; SQL Generation
 ;;
@@ -390,14 +397,25 @@
                   (rest joins)))
          (interpose-str sep (distinct sql))))))
 
+(defn add-limit [query limit]
+  (str query " LIMIT " limit))
+
+(defn add-paging [query page]
+  (str query
+       " LIMIT "
+       (:size page)
+       " OFFSET "
+       (* (:num page)
+          (:size page))))
+
 (defn selects
   "Create a sequence of selects where each can be passed to with-query-results.
-   The parsed query may have the keys: attrs, criteria and joins. Currently,
-   this sequence contains one query but in the future it may return more than
-   one as we start to implement more complicated queries and support more
-   backends."
+The parsed query may have the keys: attrs, criteria and joins. Currently,
+this sequence contains one query but in the future it may return more than
+one as we start to implement more complicated queries and support more
+backends."
   [db table parsed-query]
-  [(let [{:keys [attrs criteria joins order-by]} parsed-query
+  [(let [{:keys [attrs criteria joins order-by limit page]} parsed-query
          select-part (str "SELECT " (each-join table joins ", "
                                      #(columns-sql db %1 attrs %2))
                           " FROM " (name table)
@@ -405,10 +423,21 @@
                            #(joins-sql db %1 %2)))
          where-part (query->where-seq table criteria)
          order-by-part (query->order-by table order-by)]
-     (if where-part
-       (vec (cons (str select-part " WHERE " (first where-part) order-by-part)
-                  (rest where-part)))
-       [(str select-part order-by-part)]))])
+     (let [q-string (if where-part
+                      (str select-part
+                           " WHERE "
+                           (first where-part)
+                           order-by-part)
+                      (str select-part order-by-part))
+           params (if where-part (rest where-part))
+           q-string (cond limit
+                          (add-limit q-string limit)
+                          page
+                          (add-paging q-string page)
+                          :else q-string)]
+       (if params
+         (vec (cons q-string params))
+         [q-string])))])
 
 ;;
 ;; Schema Creation and Modification for use with Migrations
