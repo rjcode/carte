@@ -539,9 +539,40 @@
     (with-test-database default-test-data
       (are [q f expected] (= (f q) expected)
 
-           (count-records db :track)
+           (count-records sample-db :track)
            identity
            12
+
+           (count-records sample-db :track :page 2 2)
+           identity
+           12
+
+           (count-records sample-db :track :limit 2)
+           identity
+           12
+
+           (count-records sample-db :track {:name "S*"})
+           identity
+           3
+
+           (count-records sample-db :track {:name "S*"} :order-by :name)
+           identity
+           3
+
+           (count-records sample-db :album :with [:track {:name "S*"}])
+           identity
+           3
+
+           (count-records sample-db :album :with [:track {:name "S*"}]
+                          :limit 1)
+           identity
+           3
+
+           (count-records sample-db
+                          (query sample-db :album :with [:track {:name "S*"}]
+                                           :limit 1))
+           identity
+           3
            
            (fetch db ["select * from album"]) count (count albums)
          

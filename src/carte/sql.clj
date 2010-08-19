@@ -92,13 +92,6 @@
             []
             selects)))
 
-(defn sql-count
-  "Return the number of records in the table."
-  [db table]
-  (let [result (sql-query db [(str "SELECT COUNT(*) AS c FROM "
-                                   (name table))])]
-    (:c (first result))))
-
 ;;
 ;; SQL Generation
 ;;
@@ -262,7 +255,6 @@
                  (rest query)))
         (merge-where-seqs result)))))
 
-;; TODO - You are here.
 (defn- criteria->order-seq [table columns]
   (loop [result []
          columns (partition 2 columns)]
@@ -438,6 +430,25 @@ backends."
        (if params
          (vec (cons q-string params))
          [q-string])))])
+
+(defn count-query-results
+  "Return the number of records in the table."
+  [db table parsed-query]
+  (let [{:keys [criteria joins]} parsed-query
+        where-part (query->where-seq table criteria)
+        select-part (str "SELECT COUNT(*) AS c FROM "
+                         (name table)
+                         (each-join table joins
+                                    #(joins-sql db %1 %2)))
+        q-string (if where-part
+                   (str select-part " WHERE " (first where-part))
+                   select-part)
+        params (if where-part (rest where-part))
+        query (if params
+                (vec (cons q-string params))
+                [q-string])
+        result (sql-query db query)]
+    (:c (first result))))
 
 ;;
 ;; Schema Creation and Modification for use with Migrations

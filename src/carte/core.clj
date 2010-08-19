@@ -369,11 +369,6 @@
   (cond (keyword? a) a
         :else (concat a b)))
 
-(defn count-records
-  "Return the total number of records in this table."
-  [db table]
-  (sql-count db table))
-
 (defn query [db table-or-query & q]
   (if (keyword? table-or-query)
     (compile-query (:model db) table-or-query q)
@@ -405,6 +400,20 @@
        (Exception. (str "Expecting 1 result but received "
                         result-count
                         "."))))))
+
+(defn count-records
+  "Return the total number of records in this table for the given query."
+  [db & q]
+  {:pre [(or (map? (first q))
+             (keyword? (first q)))]}
+  (let [first-arg (first q)
+        q (rest q)
+        query
+        (cond (keyword? first-arg)
+              (compile-query (:model db) first-arg q)
+              (map? first-arg) first-arg
+              :else {})]
+    (count-query-results db (:root-table query) query)))
 
 ;;
 ;; Save, Update and Delete
