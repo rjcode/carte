@@ -57,8 +57,7 @@
   {})
 
 (defn many-to-many-association [table alias many-table link from to]
-  {many-table {:alias alias}
-   table {:joins #{{:type :many-to-many
+  {table {:joins #{{:type :many-to-many
                     :table many-table
                     :alias alias
                     :link link
@@ -97,18 +96,16 @@
          (link-col from-table)])))
 
 (defn one-to-many-association [table many-table alias link]
-  {many-table {:alias alias}
-   table {:joins #{{:type :one-to-many
+  {table {:joins #{{:type :one-to-many
                     :table many-table
                     :alias alias
                     :link link
                     :cascade-delete false}}}})
 
-(defn many-to-one-association [table one-table link]
-  {one-table {:alias one-table}
-   table {:joins #{{:type :many-to-one
+(defn many-to-one-association [table alias one-table link]
+  {table {:joins #{{:type :many-to-one
                     :table one-table
-                    :alias one-table
+                    :alias alias
                     :link link}}}})
 
 (defmethod compile-association :one-to-many
@@ -116,7 +113,7 @@
   (let [[alias many-table link] (one-to-many-params table coll)]
     (deep-merge-with association-merge
                      (one-to-many-association table many-table alias link)
-                     (many-to-one-association many-table table link))))
+                     (many-to-one-association many-table table table link))))
 
 (defn belongs-to-params [table params]
   (condp = (count params)
@@ -139,19 +136,22 @@
                                            :alias alias
                                            :link link
                                            :cascade-delete true}}}}
-                     (many-to-one-association table one-table link))))
+                     (many-to-one-association table one-table one-table link))))
 
 (defn many-to-one-params [table params]
-  (condp = (count params)
-    3 (rest params)
-    2 [(second params)
-       (link-col (second params))]))
+  (let [params (rest params)]
+    (condp = (count params)
+        3 params
+        2 (cons (first params)
+                params)
+        1 (let [t (first params)]
+            [t t (link-col t)]))))
 
 (defmethod compile-association :many-to-one
   [table coll]
-  (let [[one-table link] (many-to-one-params table coll)]
+  (let [[alias one-table link] (many-to-one-params table coll)]
     (deep-merge-with association-merge
-                     (many-to-one-association table one-table link)
+                     (many-to-one-association table alias one-table link)
                      (one-to-many-association one-table
                                               table
                                               (pluralize-table table)

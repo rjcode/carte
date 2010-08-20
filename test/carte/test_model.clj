@@ -44,10 +44,8 @@
      (t "containing a many-to-many relationship"
         (is (= fixture-model-many-to-many
                {:model {:category {:attrs [:id :name]
-                                   :alias :categories
                                    :joins #{fixture-join-page}}
                         :page {:attrs [:id :name :current_version]
-                               :alias :pages
                                :joins #{fixture-join-category}}}})))
      (t "where last many-to-many wins"
         (is (= (model
@@ -56,10 +54,8 @@
                 (page [:id :name :current_version]
                       (many-to-many cats :category)))
                {:model {:category {:attrs [:id :name]
-                                   :alias :cats
                                    :joins #{fixture-join-page}}
                         :page {:attrs [:id :name :current_version]
-                               :alias :pages
                                :joins #{{:type :many-to-many
                                          :table :category
                                          :alias :cats
@@ -72,14 +68,12 @@
                 (album [:id :title]
                        (many-to-one :genre :genre_id)))
                {:model {:genre {:attrs [:id :name]
-                                :alias :genre
                                 :joins #{{:type :one-to-many
                                           :table :album
                                           :alias :albums
                                           :link :genre_id
                                           :cascade-delete false}}}
                         :album {:attrs [:id :title]
-                                :alias :albums
                                 :joins #{{:type :many-to-one
                                           :table :genre
                                           :alias :genre
@@ -87,27 +81,22 @@
      (t "containing a one-to-many relationship"
         (is (= fixture-model-one-to-many
                {:model {:version {:attrs [:id :content]
-                                  :alias :versions
                                   :joins #{{:type :many-to-one
                                             :table :page
                                             :alias :page
                                             :link :page_id}}}
                         :page {:attrs [:id :name :current_version]
-                               :alias :page
                                :joins #{fixture-join-version}}}})))
      (t "containing both one and many -to-many"
         (is (= fixture-model-one-and-many-to-many
                {:model {:category {:attrs [:id :name]
-                                   :alias :categories
                                    :joins #{fixture-join-page}}
                         :version {:attrs [:id :content]
-                                  :alias :versions
                                   :joins #{{:type :many-to-one
                                             :table :page
                                             :alias :page
                                             :link :page_id}}}
                         :page {:attrs [:id :name :current_version]
-                               :alias :page
                                :joins #{fixture-join-category
                                         fixture-join-version}}}})))
      (t "using the relation macro"
@@ -139,13 +128,11 @@
                      (many-to-many :artist))
               (artist [:id :name])))
 
-        (are [x] (= x {:model {:version {:alias :versions
-                                         :joins #{{:type :many-to-one
+        (are [x] (= x {:model {:version {:joins #{{:type :many-to-one
                                                    :table :page
                                                    :alias :page
                                                    :link :page_id}}}
                                :page {:attrs [:name]
-                                      :alias :page
                                       :joins #{{:type :one-to-many
                                                 :alias :versions
                                                 :table :version

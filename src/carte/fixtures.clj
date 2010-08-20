@@ -126,10 +126,8 @@
 
 (def fixture-artist-album-model
      {:model {:album {:attrs [:id :title]
-                      :alias :albums
                       :joins #{(join-fixture :many-to-many :album :artist)}}
               :artist {:attrs [:id :name]
-                       :alias :artists
                        :joins #{{:type :many-to-many
                                  :table :album
                                  :alias :albums
