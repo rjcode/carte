@@ -52,3 +52,10 @@
                     (col :album_id :id))
    :back
    (drop-table-fn :track)})
+
+(defn migration-20100819000 []
+  {:forward
+   (alter-table-fn :album
+                   (add-col (col :release_date :date) :after :genre_id))
+   :back
+   (alter-table-fn :album (drop-col :release_date))})

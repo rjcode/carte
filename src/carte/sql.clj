@@ -11,12 +11,64 @@
    sql."
   (:use (carte model)
         (clojure.contrib [str-utils :only (re-gsub re-split)]))
-  (:require (clojure.contrib [sql :as sql])))
+  (:require (clojure.contrib [sql :as sql])
+            (clj-time [core :as time]
+                      [coerce :as coerce])))
 
 
 (def *debug* false)
 
 (defmulti to-string type)
+
+(defn filter-values [rec filter-fn]
+  (let [keys (keys rec)
+        vals (vals rec)]
+    (zipmap keys (map filter-fn vals))))
+
+(defn- wildcard-string?
+  "Does this string start with or end with wildcards."
+  [s]
+  (or (. (to-string s) endsWith "*")
+      (. (to-string s) startsWith "*")))
+
+(defn- replace-wildcard
+  "Replace all wildcard characters with SQL % characters."
+  [s]
+  (cond (wildcard-string? s) (re-gsub #"[*]" "%" s)
+        :else s))
+
+(defmulti coerce-out class)
+
+(defmethod coerce-out :default [field] field)
+
+(defmethod coerce-out org.joda.time.DateTime [field]
+           (coerce/to-date
+            (time/from-time-zone field (time/default-time-zone))))
+
+(defmethod coerce-out String [field]
+           (replace-wildcard field))
+
+(defmulti coerce-in class)
+
+(defmethod coerce-in :default [field] field)
+
+(defmethod coerce-in java.util.Date [field]
+           (time/to-time-zone (coerce/from-date field)
+                              (time/default-time-zone)))
+
+(defmethod coerce-in java.sql.Timestamp [field]
+           (time/to-time-zone (coerce/from-long (.getTime field))
+                              (time/default-time-zone)))
+
+(defn filter-into-db
+  "Filter values before going into the database."
+  [rec]
+  (filter-values rec coerce-out))
+
+(defn filter-out-of-db
+  "Filter values as they come out of the database."
+  [rec]
+  (filter-values rec coerce-in))
 
 (defmethod to-string clojure.lang.Keyword
   [x]
@@ -49,8 +101,9 @@
   [db table rec]
   (when *debug*
     (println (str "inserting record into " table ": " rec)))
-  (with-transaction db
-    #(sql/insert-records table rec)))
+  (let [rec (filter-into-db rec)]
+    (with-transaction db
+      #(sql/insert-records table rec))))
 
 (defn sql-update
   "Update the record with this id with the values in the map. Map keys
@@ -58,8 +111,9 @@
   [db table id rec]
   (when *debug*
     (println (str "updating record in " table ": " rec)))
-  (with-transaction db 
-    #(sql/update-values table ["id=?" id] rec)))
+  (let [rec (filter-into-db rec)]
+    (with-transaction db 
+      #(sql/update-values table ["id=?" id] rec))))
 
 (defn sql-delete
   "Delete records from the table using the provided where vector."
@@ -75,7 +129,7 @@
   (sql/with-connection (:connection db)
     (sql/with-query-results res
       sql
-      (into [] res))))
+      (into [] (map filter-out-of-db res)))))
 
 (defn execute-multiple-selects
   "Given multiple select queries, run each of them and return a vector of
@@ -88,7 +142,7 @@
     (reduce (fn [results next-select]
               (sql/with-query-results res
                 next-select
-                (conj results (into [] res))))
+                (conj results (into [] (map filter-out-of-db res)))))
             []
             selects)))
 
@@ -117,18 +171,6 @@
   [prefix s]
   (let [p (create-column-name-pattern-from-sql s)]
     (re-gsub p #(str prefix "." %) s)))
-
-(defn- wildcard-string?
-  "Does this string start with or end with wildcards."
-  [s]
-  (or (. (to-string s) endsWith "*")
-      (. (to-string s) startsWith "*")))
-
-(defn- replace-wildcard
-  "Replace all wildcard characters with SQL % characters."
-  [s]
-  (cond (wildcard-string? s) (re-gsub #"[*]" "%" s)
-        :else s))
 
 ;; The next few functions create where-seqs. A where-seq is a
 ;; sequence where the first element is a parameterized query string
@@ -196,7 +238,7 @@
      (interpose-str " OR " (if (> (count strings) 1)
                              (map #(str "(" % ")") strings)
                              strings))
-     (map replace-wildcard (filter #(not (nil? %)) values)))))
+     (map coerce-out (filter #(not (nil? %)) values)))))
 
 (defn criteria->where-seq
   "Given a list of maps for a single table, create a where-seq
@@ -488,23 +530,39 @@ backends."
 
 (defmulti col (fn [_ type & spec] type))
 
-(defmethod col :string [col-name type & spec]
-  (str (name col-name) " varchar(255)"
+(defn column-template [col-name datatype spec]
+  (str (name col-name) " " datatype
        (if (contains? (set spec) :not-null)
          " NOT NULL"
          "")))
+
+(defn get-spec [spec k default]
+  (let [spec-map (first (filter map? [:one :two {:one :a}]))]
+    (if-let [v (k spec-map)]
+      v
+      default)))
+
+(defmethod col :string [col-name type & spec]
+           (column-template col-name
+                            (str "varchar(" (get-spec spec :size 255) ")")
+                            spec))
 
 (defmethod col :id [col-name type & spec]
-  (str (name col-name) " bigint(20)"
-       (if (contains? (set spec) :not-null)
-         " NOT NULL"
-         "")))
+           (column-template col-name
+                            (str "bigint(" (get-spec spec :size 20) ")")
+                            spec))
 
 (defmethod col :char [col-name type & spec]
-  (str (name col-name) " char(1)"
-       (if (contains? (set spec) :not-null)
-         " NOT NULL"
-         "")))
+           (column-template col-name "char(1)" spec))
+
+(defmethod col :date [col-name type & spec]
+           (column-template col-name "date" spec))
+
+(defmethod col :timestamp [col-name type & spec]
+           (column-template col-name "timestamp" spec))
+
+(defmethod col :text [col-name type & spec]
+           (column-template col-name "text" spec))
 
 (defn constraint
   ([this-col _ table that-col]

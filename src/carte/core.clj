@@ -9,6 +9,9 @@
 (ns carte.core
   "Relational mapping, and data transformation."
   (:use (carte sql model)
+        (clj-time [core :only (date-time
+                               from-time-zone
+                               default-time-zone)])
         (clojure [set :only (difference)])
         (clojure.contrib [map-utils :only (deep-merge-with)]))
   (:require (clojure [zip :as zip])))
@@ -579,4 +582,5 @@
        (save-or-update db (set-table table record-or-coll))
        (save-or-update db (map #(set-table table %) record-or-coll)))))
 
-
+(defn carte-date-time [& args]
+  (from-time-zone (apply date-time args) (default-time-zone)))

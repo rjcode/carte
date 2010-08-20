@@ -8,6 +8,7 @@
 
 (ns carte.test-core
   (:use (clojure test)
+        (clj-time core)
         (carte core model fixtures)))
 
 (def *hit-database* true)
@@ -619,6 +620,21 @@
           ($ :album {:where ["title like ? or title like ?" "Mag%" "Th%"]})
           #(set (map :title %))
           #{"Magic Potion" "Thickfreakness"}
+          
+          ;; queries with dates
+          ($ :album {:where ["release_date < ?" (carte-date-time 2006)]})
+          #(set (map :title %))
+          #{"Elephant" "Thickfreakness"}
+
+          ($ :album {:where ["release_date = ?" (carte-date-time 2006 5 16)]})
+          #(set (map :title %))
+          #{"Broken Boy Soldiers"}
+
+          ($ :album {:where ["release_date > ? and release_date < ?"
+                             (carte-date-time 2006 1 1)
+                             (carte-date-time 2007 1 1)]})
+          #(set (map :title %))
+          #{"Broken Boy Soldiers" "Magic Potion"}
          
           ($ :album :with :artists)
           #(set (find-in [{:title "Magic Potion"} :artists :name] %))
@@ -734,6 +750,12 @@
           (do
             (! (update-fn (apply $1 query)))
             (= (test-fn (apply $1 query)) expected))
+
+          ;; Update a release date
+          [:album {:title "Magic Potion"}]
+          #(assoc % :release_date (carte-date-time 2010 8 20))
+          #((juxt year month day) (:release_date %))
+          [2010 8 20]
 
           ;; Add a track to an album
           [:album {:title "Magic Potion"} :with :tracks]

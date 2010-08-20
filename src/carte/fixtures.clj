@@ -155,7 +155,7 @@
       (genre [:id :name])
       (track [:id :name]
              (belongs-to :album))
-      (album [:id :title]
+      (album [:id :title :release_date]
              (many-to-many :artist)
              (many-to-one :genre))
       (artist [:id :name])))
@@ -249,6 +249,9 @@
                   ($1 :track {:name (first tracks)})))
       (recur album (rest tracks)))))
 
+(defn add-release-date-to-album [album date]
+  (! (assoc ($1 :album {:title album}) :release_date date)))
+
 (defn set-genre [album genre]
   (! (-> ($1 :album {:title album} :with :genre)
          (assoc :genre ($1 :genre {:name genre})))))
@@ -265,6 +268,11 @@
     (add-artists-to-album "Thickfreakness" the-black-keys)
     (add-artists-to-album "Elephant" the-white-stripes)
     (add-artists-to-album "Broken Boy Soldiers" the-raconteurs)
+
+    (add-release-date-to-album "Magic Potion" (carte-date-time 2006 9 12))
+    (add-release-date-to-album "Thickfreakness" (carte-date-time 2003 4 8))
+    (add-release-date-to-album "Elephant" (carte-date-time 2003 4 1))
+    (add-release-date-to-album "Broken Boy Soldiers" (carte-date-time 2006 5 16))
 
     (add-tracks-to-album "Magic Potion" magic-potion-tracks)
     (add-tracks-to-album "Elephant" elephant-tracks)
