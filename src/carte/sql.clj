@@ -537,7 +537,7 @@ backends."
          "")))
 
 (defn get-spec [spec k default]
-  (let [spec-map (first (filter map? [:one :two {:one :a}]))]
+  (let [spec-map (first (filter map? spec))]
     (if-let [v (k spec-map)]
       v
       default)))
