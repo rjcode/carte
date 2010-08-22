@@ -63,6 +63,6 @@
 (defn migration-20100821000 []
   {:forward
    (alter-table-fn :album
-                   (add-col (col :lead_vocals :id) :after :release_date))
+                   (add-col (col :lead_vocals_id :id) :after :release_date))
    :back
-   (alter-table-fn :album (drop-col :lead_vocals))})
+   (alter-table-fn :album (drop-col :lead_vocals_id))})

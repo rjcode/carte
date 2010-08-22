@@ -155,7 +155,8 @@
              (belongs-to :album))
       (album [:id :title :release_date]
              (many-to-many :artist)
-             (many-to-one :genre))
+             (many-to-one :genre)
+             (many-to-one lead_vocals :artist :lead_vocals_id))
       (artist [:id :name])))
 
 (def sample-db (merge db sample-data-model))
@@ -250,6 +251,10 @@
 (defn add-release-date-to-album [album date]
   (! (assoc ($1 :album {:title album}) :release_date date)))
 
+(defn add-lead-vocals-to-album [album lead]
+  (! (assoc ($1 :album {:title album} :with :lead_vocals)
+       :lead_vocals ($1 :artist {:name lead}))))
+
 (defn set-genre [album genre]
   (! (-> ($1 :album {:title album} :with :genre)
          (assoc :genre ($1 :genre {:name genre})))))
@@ -271,7 +276,10 @@
     (add-release-date-to-album "Thickfreakness" (carte-date-time 2003 4 8))
     (add-release-date-to-album "Elephant" (carte-date-time 2003 4 1))
     (add-release-date-to-album "Broken Boy Soldiers" (carte-date-time 2006 5 16))
-
+    
+    (add-lead-vocals-to-album "Magic Potion" "Dan Auerbach")
+    (add-lead-vocals-to-album "Elephant" "Jack White")
+    
     (add-tracks-to-album "Magic Potion" magic-potion-tracks)
     (add-tracks-to-album "Elephant" elephant-tracks)
     (add-tracks-to-album "Broken Boy Soldiers" broken-boy-soldiers-tracks)

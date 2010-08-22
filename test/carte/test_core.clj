@@ -540,6 +540,22 @@
     (with-test-database default-test-data
       (are [q f expected] (= (f q) expected)
 
+           ($ :album {:title "Magic Potion"} :with :lead_vocals)
+           #(-> % first :lead_vocals :name)
+           "Dan Auerbach"
+           
+           ;; This test fails demonstrating joining two tables
+           #_($ :album {:title "Magic Potion"} :with :artists :lead_vocals)
+           #_#(-> % first :lead_vocals :name)
+           #_"Dan Auerbach"
+           
+           ;; You should be allows to perform this query. An alias is
+           ;; being used in the first position instead of a table. You can
+           ;; find the table in the model.
+           #_($ :album :with [:lead_vocals {:name "Dan Auerbach"}])
+           #_#(-> % first :title)
+           #_"Magic Potion"
+
            (count-records sample-db :track)
            identity
            12         
