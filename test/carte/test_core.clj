@@ -146,18 +146,52 @@
 (deftest test-parse-join-part
   (are [x _ y] (= (parse-join-part (:model fixture-model-one-to-many)
                                    :page
+                                   :page
                                    x)
                   y)
-       [:with :versions] :=> {:joins {:page [:versions]}}
-       [:with [:version]] :=> {:joins {:page [:versions]}}
-       [:with [:version {:name "a"}]] :=> {:criteria {:version [{:name "a"}]}
-                                           :joins {:page [:versions]}}
-       [:with [:version [:id] {:name "a"}]] :=> {:attrs {:version [:id]}
-                                                 :criteria
-                                                 {:version [{:name "a"}]}
-                                                 :joins {:page [:versions]}}
-       [:with [:version :order-by :name]] :=> {:order-by [:version [:name :asc]]
-                                               :joins {:page [:versions]}}))
+       [:with :versions] :=> {:joins {:page {:table :page
+                                             :joins [:versions]}}}
+       
+       [:with [:versions]] :=> {:joins {:page {:table :page
+                                               :joins [:versions]}}}
+       
+       [:with [:versions {:name "a"}]] :=> {:criteria {:versions [{:name "a"}]}
+                                            :joins {:page {:table :page
+                                                           :joins [:versions]}}}
+       
+       [:with [:versions [:id] {:name "a"}]] :=>
+       {:attrs {:versions [:id]}
+        :criteria {:versions [{:name "a"}]}
+        :joins {:page {:table :page :joins [:versions]}}}
+
+       [:with [:versions :order-by :name]] :=>
+       {:order-by [:versions [:name :asc]]
+        :joins {:page {:table :page :joins [:versions]}}})
+
+  (is (= (parse-join-part (:model (model (track [:name]
+                                                (belongs-to :album))
+                                         (album [:name]
+                                                (many-to-many :artist))
+                                         (artist [:name])))
+                          :artist
+                          :artist
+                          [:with [:albums :with :tracks]])
+         {:joins {:artist {:table :artist :joins [:albums]}
+                  :albums {:table :album :joins [:tracks]}}}))
+
+  (is (= (parse-join-part
+          (:model (model (region [:name])
+                         (site [:name]
+                               (many-to-one :region))
+                         (bol [:name]
+                              (many-to-one origin :site :origin_id)
+                              (many-to-one dest :site :dest_id))))
+          :bol
+          :bol
+          [:with [:origin :with :region] [:dest :with :region]])
+         {:joins {:bol {:table :bol :joins [:origin :dest]}
+                  :origin {:table :site :joins [:region]}
+                  :dest {:table :site :joins [:region]}}})))
 
 (deftest test-parse-query
   (are [x _ y] (= (parse-query (:model fixture-model-one-to-many)
@@ -172,72 +206,97 @@
                                                         {:name "b"}]}}
        [[:id] {:name "a"}]       :=> {:attrs {:page [:id]}
                                       :criteria {:page [{:name "a"}]}}
-       [:with :versions]         :=> {:joins {:page [:versions]}}
-       [:with [:version]]        :=> {:joins {:page [:versions]}}
-       [[:id] {:name "a"} :with :versions] :=> {:attrs {:page [:id]}
-                                                :criteria {:page [{:name "a"}]}
-                                                :joins {:page [:versions]}}
        
+       [:with :versions]         :=> {:joins {:page {:table :page
+                                                     :joins [:versions]}}}
+
+       [:with [:versions]]        :=> {:joins {:page {:table :page
+                                                      :joins [:versions]}}}
+
+       [[:id] {:name "a"} :with :versions] :=>
+       {:attrs {:page [:id]}
+        :criteria {:page [{:name "a"}]}
+        :joins {:page {:table :page
+                       :joins [:versions]}}}
+
        [:order-by :name] :=> {:order-by [:page [:name :asc]]}
        [:order-by :name [:id :desc]] :=> {:order-by [:page
                                                      [:name :asc :id :desc]]}
        [:order-by :name [:id :desc] :with :versions] :=>
        {:order-by [:page [:name :asc :id :desc]]
-        :joins {:page [:versions]}}
-       [:order-by :name [:id :desc] :with [:version :order-by :id]] :=>
-       {:order-by [:page [:name :asc :id :desc] :version [:id :asc]]
-        :joins {:page [:versions]}}
+        :joins {:page {:table :page :joins [:versions]}}}
+       [:order-by :name [:id :desc] :with [:versions :order-by :id]] :=>
+       {:order-by [:page [:name :asc :id :desc] :versions [:id :asc]]
+        :joins {:page {:table :page :joins [:versions]}}}
        [:limit 10] :=> {:limit 10}
-       [:with :versions :limit 10] :=> {:joins {:page [:versions]} :limit 10}
+       [:with :versions :limit 10] :=> {:joins {:page {:table :page
+                                                       :joins [:versions]}}
+                                        :limit 10}
        [:with :versions :page 2 10] :=>
-       {:joins {:page [:versions]} :page {:num 2 :size 10}}
-       )
-  
+       {:joins {:page {:table :page :joins [:versions]}}
+        :page {:num 2 :size 10}})
+
   (are [table query _ expected] (= (parse-query (:model sample-data-model)
                                                 table
                                                 query)
                                    expected)
        :artist
-       [:with [:album :with :tracks]] :=> {:joins {:artist [:albums]
-                                                   :album [:tracks]}}))
+       [:with [:albums :with :tracks]] :=>
+       {:joins {:artist {:table :artist
+                         :joins [:albums]}
+                :albums {:table :album
+                         :joins [:tracks]}}}))
 
 (deftest test-query
   (let [& (partial query sample-db)]
     (is (= (& :album) {:root-table :album}))
     (let [album-query (& :album :with :artists :tracks :genre)]
       (is (= album-query {:root-table :album
-                          :joins {:album [:artists :tracks :genre]}}))
+                          :joins {:album {:table :album
+                                          :joins [:artists :tracks :genre]}}}))
       (is (= (& album-query (& :album :order-by :title))
              {:root-table :album
               :order-by [:album [:title :asc]]
-              :joins {:album [:artists :tracks :genre]}}))
-      (is (= (& album-query (& :artist :order-by :name))
+              :joins {:album {:table :album
+                              :joins [:artists :tracks :genre]}}}))
+      (is (= (& album-query (& :artists :order-by :name))
              {:root-table :album
-              :order-by [:artist [:name :asc]]
-              :joins {:album [:artists :tracks :genre]}}))
+              :order-by [:artists [:name :asc]]
+              :joins {:album {:table :album
+                              :joins [:artists :tracks :genre]}}}))
       (is (= (& album-query (& :genre :order-by :name))
              {:root-table :album
               :order-by [:genre [:name :asc]]
-              :joins {:album [:artists :tracks :genre]}}))
+              :joins {:album {:table :album
+                              :joins [:artists :tracks :genre]}}}))
       (is (= (& album-query (& :genre {:name "Rock"}))
              {:root-table :album
               :criteria {:genre [{:name "Rock"}]}              
-              :joins {:album [:artists :tracks :genre]}})))))
+              :joins {:album {:table :album
+                              :joins [:artists :tracks :genre]}}})))))
 
 (deftest test-dequalify-joined-map
   (t "test dequalify joined map"
-     (are [table flat-map expected]
+     (are [table alias flat-map expected]
           (= (dequalify-joined-map (:model fixture-model-many-to-many)
                                    table
+                                   alias
                                    flat-map)
              expected)
 
-        :page
+          :page
+          :page
         {:page_id 1 :page_name "one" :category_id 2}
         {:id 1 :name "one"}
         
         :category
+        :category
         {:page_id 1 :page_name "one" :category_id 2 :category_name "two"}
+        {:id 2 :name "two"}
+
+        :category
+        :categories
+        {:page_id 1 :page_name "one" :categories_id 2 :categories_name "two"}
         {:id 2 :name "two"})
   
      (are [table map expected]
@@ -247,6 +306,7 @@
                        (page [:id :name]
                              (one-to-many categories
                                           :page_category :page_id))))
+              table
               table
               map)
              expected)
@@ -318,55 +378,50 @@
        [{:id 1 :name "A"}]
 
        :artist
-       nil
-       [{:artist_id 1 :artist_name "A"}]
-       [{:id 1 :name "A"}]
-
-       :artist
        {}
        [{:artist_id 1 :artist_name "A"}
         {:artist_id 2 :artist_name "B"}]
        [{:id 1 :name "A"}
         {:id 2 :name "B"}]
-
+       
        :artist
-       {:artist [:albums]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"}]
+       {:artist {:table :artist :joins [:albums]}}
+       [{:artist_id 1 :artist_name "A" :albums_id 2 :albums_title "B"}]
        [{:id 1 :name "A" :albums [{:id 2 :title "B"}]}]
 
        :album
-       {:album [:artists :tracks]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
-         :track_id 3 :track_name "C"}]
+       {:album {:table :album :joins [:artists :tracks]}}
+       [{:artists_id 1 :artists_name "A" :album_id 2 :album_title "B"
+         :tracks_id 3 :tracks_name "C"}]
        [{:id 2
          :title "B"
          :artists [{:id 1 :name "A"}]
          :tracks [{:id 3 :name "C"}]}]
 
        :artist
-       {:artist [:albums]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"}
-        {:artist_id 1 :artist_name "A" :album_id 3 :album_title "C"}]
+       {:artist {:table :artist :joins [:albums]}}
+       [{:artist_id 1 :artist_name "A" :albums_id 2 :albums_title "B"}
+        {:artist_id 1 :artist_name "A" :albums_id 3 :albums_title "C"}]
        [{:id 1 :name "A" :albums [{:id 2 :title "B"}
                                   {:id 3 :title "C"}]}]
 
        :album
-       {:album [:artists :tracks]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
-         :track_id 3 :track_name "C"}
-        {:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
-         :track_id 4 :track_name "D"}]
+       {:album {:table :album :joins [:artists :tracks]}}
+       [{:artists_id 1 :artists_name "A" :album_id 2 :album_title "B"
+         :tracks_id 3 :tracks_name "C"}
+        {:artists_id 1 :artists_name "A" :album_id 2 :album_title "B"
+         :tracks_id 4 :tracks_name "D"}]
        [{:id 2
          :title "B"
          :artists [{:id 1 :name "A"}]
          :tracks [{:id 3 :name "C"}
                   {:id 4 :name "D"}]}]
-
+       
        :album
-       {:album [:artists :genre]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
+       {:album {:table :album :joins [:artists :genre]}}
+       [{:artists_id 1 :artists_name "A" :album_id 2 :album_title "B"
          :genre_id 1 :genre_name "C"}
-        {:artist_id 2 :artist_name "D" :album_id 3 :album_title "E"
+        {:artists_id 2 :artists_name "D" :album_id 3 :album_title "E"
          :genre_id 2 :genre_name "F"}]
        [{:id 2
          :title "B"
@@ -378,29 +433,31 @@
          :genre {:id 2 :name "F"}}]
 
        :artist
-       {:artist [:albums]}
-       [{:artist_id 1 :artist_name "A" :album_id 3 :album_title "C"}
-        {:artist_id 1 :artist_name "A" :album_id 4 :album_title "D"}
-        {:artist_id 2 :artist_name "B" :album_id 5 :album_title "E"}
-        {:artist_id 2 :artist_name "B" :album_id 6 :album_title "F"}]
+       {:artist {:table :artist :joins [:albums]}}
+       [{:artist_id 1 :artist_name "A" :albums_id 3 :albums_title "C"}
+        {:artist_id 1 :artist_name "A" :albums_id 4 :albums_title "D"}
+        {:artist_id 2 :artist_name "B" :albums_id 5 :albums_title "E"}
+        {:artist_id 2 :artist_name "B" :albums_id 6 :albums_title "F"}]
        [{:id 1 :name "A" :albums [{:id 3 :title "C"}
                                   {:id 4 :title "D"}]}
         {:id 2 :name "B" :albums [{:id 5 :title "E"}
                                   {:id 6 :title "F"}]}]
 
        :artist
-       {:artist [:albums] :album [:tracks]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
-         :track_id 3 :track_name "C"}]
+       {:artist {:table :artist :joins [:albums]}
+        :albums {:table :album :joins [:tracks]}}
+       [{:artist_id 1 :artist_name "A" :albums_id 2 :albums_title "B"
+         :tracks_id 3 :tracks_name "C"}]
        [{:id 1 :name "A" :albums [{:id 2 :title "B"
                                    :tracks [{:id 3 :name "C"}]}]}]
 
        :artist
-       {:artist [:albums] :album [:tracks]}
-       [{:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
-         :track_id 3 :track_name "C"}
-        {:artist_id 1 :artist_name "A" :album_id 2 :album_title "B"
-         :track_id 4 :track_name "D"}]
+       {:artist {:table :artist :joins [:albums]}
+        :albums {:table :album :joins [:tracks]}}
+       [{:artist_id 1 :artist_name "A" :albums_id 2 :albums_title "B"
+         :tracks_id 3 :tracks_name "C"}
+        {:artist_id 1 :artist_name "A" :albums_id 2 :albums_title "B"
+         :tracks_id 4 :tracks_name "D"}]
        [{:id 1 :name "A" :albums [{:id 2 :title "B"
                                    :tracks [{:id 3 :name "C"}
                                             {:id 4 :name "D"}]}]}]))
@@ -439,16 +496,30 @@
                     orig-key first-cat})))
          (t ": does metadata for category contain the original value"
             (is (= first-cat (-> first-cat meta orig-key)))))
-       (t "with common prefixes"
+       (t "with common table prefixes"
           (is (= (tf (model
                       (page_category [:id :name])
                       (page [:id :name]
                             (one-to-many categories
                                          :page_category :page_id)))
-                     [[{:page_id 1 :page_name "one" :page_category_id 1
-                        :page_category_name "c1"}]])
+                     [[{:page_id 1 :page_name "one" :categories_id 1
+                        :categories_name "c1"}]])
                  [{:id 1 :name "one"
-                   :categories [{:id 1 :name "c1"}]}]))))))
+                   :categories [{:id 1 :name "c1"}]}])))))
+  (t "test transform with common alias prefixes"
+     (let [model (model (page_category [:id :name])
+                        (page [:id :name]
+                              (one-to-many page_categories
+                                           :page_category :page_id)))]
+       (is (= (flat->nested model
+                            :page
+                            (:joins (parse-query model
+                                                 :page
+                                                 [:with :page_categories]))
+                            [[{:page_id 1 :page_name "one" :page_categories_id 1
+                               :page_categories_name "c1"}]])
+              [{:id 1 :name "one"
+                :page_categories [{:id 1 :name "c1"}]}])))))
 
 (deftest test-flat->nested-edge-cases
   (t "test flat->nested edge cases"
@@ -545,16 +616,16 @@
            "Dan Auerbach"
            
            ;; This test fails demonstrating joining two tables
-           #_($ :album {:title "Magic Potion"} :with :artists :lead_vocals)
-           #_#(-> % first :lead_vocals :name)
-           #_"Dan Auerbach"
+           ($ :album {:title "Magic Potion"} :with :artists :lead_vocals)
+           #(-> % first :lead_vocals :name)
+           "Dan Auerbach"
            
            ;; You should be allows to perform this query. An alias is
            ;; being used in the first position instead of a table. You can
            ;; find the table in the model.
-           #_($ :album :with [:lead_vocals {:name "Dan Auerbach"}])
-           #_#(-> % first :title)
-           #_"Magic Potion"
+           ($ :album :with [:lead_vocals {:name "Dan Auerbach"}])
+           #(-> % first :title)
+           "Magic Potion"
 
            (count-records sample-db :track)
            identity
@@ -576,17 +647,17 @@
            identity
            3
            
-           (count-records sample-db :album :with [:track {:name "S*"}])
+           (count-records sample-db :album :with [:tracks {:name "S*"}])
            identity
            3
            
-           (count-records sample-db :album :with [:track {:name "S*"}]
+           (count-records sample-db :album :with [:tracks {:name "S*"}]
                           :limit 1)
            identity
            3
            
            (count-records sample-db
-                          (query sample-db :album :with [:track {:name "S*"}]
+                          (query sample-db :album :with [:tracks {:name "S*"}]
                                  :limit 1))
            identity
            3
@@ -668,15 +739,13 @@
            #(find-first-in [{:name (first the-black-keys)} :albums :title] %)
            "Magic Potion"
            
-           ($ :album :with [:artist])
+           ($ :album :with [:artists])
            #(set (find-in [{:title "Magic Potion"} :artists :name] %))
            the-black-keys
            
-           ($ :album :with [:artist {:name "Jack White"}]) count 2
+           ($ :album :with [:artists {:name "Jack White"}]) count 2
 
-           ;; GOOD
-           
-           ($ :album :with [:artist {:name "Jack White"}])
+           ($ :album :with [:artists {:name "Jack White"}])
            #(set (map :title %))
            #{"Elephant" "Broken Boy Soldiers"}
            
@@ -684,7 +753,7 @@
            #(set (find-in [{:title "Magic Potion"} :tracks :name] %))
            magic-potion-tracks
            
-           ($ :album :with [:track {:name "Seven*"}])
+           ($ :album :with [:tracks {:name "Seven*"}])
            #(set (map :title %))
            #{"Elephant"}
            
@@ -696,11 +765,11 @@
            #(set (map :name (find-in [{:title "Elephant"} :tracks] %)))
            elephant-tracks
            
-           ($ :artist :with [:album :with :tracks])
+           ($ :artist :with [:albums :with :tracks])
            #(set (map :name (find-in [{:name "Meg White"} :albums :tracks] %)))
            elephant-tracks
            
-           ($ :artist :with [:album :with [:track {:name "Call*"}]])         
+           ($ :artist :with [:albums :with [:tracks {:name "Call*"}]])         
            #(set (map :name %))
            the-raconteurs
 
@@ -720,8 +789,6 @@
            #(set (map :title %))
            #{"Magic Potion"}
 
-           ;; GOOD
-
           ($ :genre :with :albums)
           #(set (find-in [:albums :title] %))
           #{"Broken Boy Soldiers" "Elephant" "Magic Potion" "Thickfreakness"}
@@ -731,12 +798,12 @@
           (vector "Broken Boy Soldiers" "Elephant" "Magic Potion"
                   "Thickfreakness" "White Blood Cells")
           
-          ($ :album :order-by :title :with [:artist :order-by :name])
+          ($ :album :order-by :title :with [:artists :order-by :name])
           #(map :name (:artists (first %)))
           (vector "Brenden Benson" "Jack Lawrence" "Jack White" "Patrick Keeler")
           
           ($ :artist [:name] {:name "P*"} :order-by :name
-             :with [:album :order-by [:title :desc]])
+             :with [:albums :order-by [:title :desc]])
           #(map :title (:albums (first %)))
           (vector "Thickfreakness" "Magic Potion")
           
@@ -756,7 +823,7 @@
         (is (= (:title result) "Magic Potion"))
         (is (= (-> result meta table-key) :album)))
       
-      (let [q [:artist {:name "*White"}]
+      (let [q [:artists {:name "*White"}]
             r1 (apply $ q)
             r2 ($ :album :with q)]
         (is (= (set (map :name r1)) the-white-stripes))

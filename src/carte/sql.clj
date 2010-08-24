@@ -354,66 +354,46 @@
         (cons :id attrs))
       all-attrs)))
 
-(defn columns-sql
-  "Create a comma delimited string containing the all the attributes to query.
-   Each attribute will be table qualified and aliased. If there is no model
-   and no attributes are requested then return *."
-  ([db table]
-     (columns-sql db table nil nil))
-  ([db table req-attrs]
-     (columns-sql db table req-attrs nil))
-  ([db table req-attrs joins]
-     {:pre [(not (nil? table))]}
-     (if-let [attrs (column-seq db table req-attrs)]
-       (loop [result (create-table-qualified-names table
-                                                   attrs)
-              joins joins]
-         (if (seq joins)
-           (let [{type :type many-side :table}
-                 (find-join-by (:model db) table :alias (first joins))
-                 attrs (column-seq db many-side req-attrs)]
-             (recur (concat result (create-table-qualified-names many-side
-                                                                 attrs))
-                    (rest joins)))
-           result))
-       ["*"])))
-
 (defmulti left-join-sql (fn [db & args] (-> db :connection :subprotocol)))
 
-(defmethod left-join-sql :default [db lt lcol rt rcol]
-  (let [[lt lcol rt rcol] (map name [lt lcol rt rcol])]
-    (str " LEFT JOIN " rt " ON " lt "." lcol " = " rt "." rcol)))
+(defmethod left-join-sql :default [db lt lcol rt alias rcol]
+           (let [[lt lcol rt alias rcol] (map name [lt lcol rt alias rcol])
+                 join-table (if (= rt alias)
+                              rt
+                              (str rt " " alias))]
+             (str " LEFT JOIN " join-table
+                  " ON " lt "." lcol " = " alias "." rcol)))
 
 (defmulti join-sql (fn [_ _ join] (:type join)))
 
 (defmethod join-sql :many-to-many [db table join]
-  (let [{r-table :table link :link from :from to :to} join]
-    (str (left-join-sql db table :id link from)
-         (left-join-sql db link to r-table :id))))
+  (let [{r-table :table link :link from :from to :to alias :alias} join]
+    (str (left-join-sql db table :id link link from)
+         (left-join-sql db link to r-table alias :id))))
 
 (defmethod join-sql :one-to-many [db table join]
-  (let [{r-table :table link :link} join]
-    (left-join-sql db table :id r-table link)))
+  (let [{r-table :table link :link alias :alias} join]
+    (left-join-sql db table :id r-table alias link)))
 
 (defmethod join-sql :many-to-one [db table join]
-  (let [{r-table :table link :link} join]
-    (left-join-sql db table link r-table :id)))
+  (let [{r-table :table link :link alias :alias} join]
+    (left-join-sql db table link r-table alias :id)))
 
 (defmethod join-sql :default [db table join] "")
 
 (defn joins-sql
   "Given a model, table and list of requested joins, create the join SQL
    string."
-  [db table requested-joins]
-  (loop [join-seq []
-         joins requested-joins]
-    (if (seq joins)
-      (let [join (find-join-by (:model db) table :alias (first joins))]
-        
-        (recur
-         (conj join-seq (join-sql db table join))
-         (rest joins))) 
-      join-seq)))
+  [db alias requested-joins]
+  (let [table (:table requested-joins)]
+    (loop [join-seq []
+           joins (:joins requested-joins)]
+      (if (seq joins)
+        (let [join (find-join-by (:model db) table :alias (first joins))]
+          (recur
+           (conj join-seq (join-sql db alias join))
+           (rest joins))) 
+        join-seq))))
 
 (defn each-join
   "The joins map may have many entries. For each entry in the map, call an
@@ -442,6 +422,42 @@
        (* (:num page)
           (:size page))))
 
+(defn select-attrs-from-joins
+  "Create a list of aliased attributes for a select query."
+  [db attrs joins]
+  (loop [result []
+         joins joins]
+    (if (seq joins)
+      (recur
+       (concat result
+               (let [next (first joins)
+                     alias (key next)
+                     table (:table (val next))
+                     join-aliases (:joins (val next))]
+                 (concat (create-table-qualified-names
+                          alias
+                          (column-seq db table attrs))
+                         (apply concat
+                                (map #(let [{t :table} (find-join-by (:model db)
+                                                                     table
+                                                                     :alias
+                                                                     %)]
+                                        (create-table-qualified-names
+                                         %
+                                         (column-seq db t attrs)))
+                                     join-aliases)))))
+       (rest joins))
+      (distinct result))))
+
+(defn select-attrs [db table attrs joins]
+  (let [c (if (and joins (not (empty? joins)))
+            (select-attrs-from-joins db attrs joins)
+            (create-table-qualified-names table
+                                          (column-seq db table attrs)))]
+    (if (and c (not (empty? c)))
+      (interpose-str ", " c)
+      "*")))
+
 (defn selects
   "Create a sequence of selects where each can be passed to with-query-results.
 The parsed query may have the keys: attrs, criteria and joins. Currently,
@@ -450,11 +466,11 @@ one as we start to implement more complicated queries and support more
 backends."
   [db table parsed-query]
   [(let [{:keys [attrs criteria joins order-by limit page]} parsed-query
-         select-part (str "SELECT " (each-join table joins ", "
-                                     #(columns-sql db %1 attrs %2))
-                          " FROM " (name table)
-                          (each-join table joins
-                           #(joins-sql db %1 %2)))
+         select-part
+         (str "SELECT " (select-attrs db table attrs joins)
+              " FROM " (name table)
+              (each-join table joins
+                         #(joins-sql db %1 %2)))
          where-part (query->where-seq table criteria)
          order-by-part (query->order-by table order-by)]
      (let [q-string (if where-part
@@ -520,7 +536,7 @@ backends."
           spec))))
 
 (defn add-col [col & spec]
-  (str " ADD COLUMN " col
+  (str " ADD " col
        (let [after (drop-while #(not (= % :after)) spec)]
          (if (seq after)
            (str " AFTER " (name (last after)) ";")))))

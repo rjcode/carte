@@ -28,11 +28,22 @@
                   :link :page_category
                   :from :page_id
                   :to :category_id}
-           join3 (join-fixture :many-to-many :page :version)]
-       (t "when newer replaces older"
+           join3 (join-fixture :many-to-many :page :version)
+           join4 {:type :many-to-many
+                  :table :cats
+                  :alias :cats
+                  :link :page_cats
+                  :from :page_id
+                  :to :cat_id}]
+       (t "when adding a different alias"
           (is (= (merge-join-sets #{join1}
                                   #{join2})
-                 #{join2})))
+                 #{join1
+                   join2})))
+       (t "when adding the same alias"
+          (is (= (merge-join-sets #{join2}
+                                  #{join4})
+                 #{join4})))
        (t "when they are concatinated"
           (is (= (merge-join-sets #{join1}
                                   #{join3})
@@ -47,21 +58,6 @@
                                    :joins #{fixture-join-page}}
                         :page {:attrs [:id :name :current_version]
                                :joins #{fixture-join-category}}}})))
-     (t "where last many-to-many wins"
-        (is (= (model
-                (category [:id :name]
-                          (many-to-many :page :=> :page_category))
-                (page [:id :name :current_version]
-                      (many-to-many cats :category)))
-               {:model {:category {:attrs [:id :name]
-                                   :joins #{fixture-join-page}}
-                        :page {:attrs [:id :name :current_version]
-                               :joins #{{:type :many-to-many
-                                         :table :category
-                                         :alias :cats
-                                         :link :page_category
-                                         :from :page_id
-                                         :to :category_id}}}}})))
      (t "with one-to-many"
         (is (= (model
                 (genre [:id :name])
@@ -146,3 +142,30 @@
              
              (model (page [:name]
                           (one-to-many :version)))))))
+
+(:model (model (region [:name])
+                         (site [:name]
+                               (many-to-one :region))
+                         (bol [:name]
+                              (many-to-one origin :site :origin_id)
+                              (many-to-one dest :site :dest_id))))
+
+(deftest test-various-models
+  (t "test model"
+     (t "with one table"
+        (is (= (:model (model (bol [:name])))
+               {:bol {:attrs [:name]}})))
+     (t "with two joins on the same table"
+        (is (= (:model (model (site [:name])
+                              (bol [:name]
+                                   (many-to-one origin :site :origin_id)
+                                   (many-to-one dest :site :dest_id))))
+               {:bol {:attrs [:name]
+                      :joins #{{:alias :dest :link :dest_id :table :site
+                                :type :many-to-one}
+                               {:alias :origin :link :origin_id :table :site
+                                :type :many-to-one}}}
+                :site {:attrs [:name]
+                       :joins #{{:alias :bols :cascade-delete false
+                                 :link :dest_id :table :bol
+                                 :type :one-to-many}}}})))))

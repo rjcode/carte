@@ -31,8 +31,8 @@
              coll))))
 
 (def page-table [:page [:id :name :current_version]])
-(def category-table [:category [:id :name]])
-(def version-table [:version [:id :content]])
+(def category-table [:categories [:id :name]])
+(def version-table [:versions [:id :content]])
 
 (defn select-from [attrs]
   (str "SELECT " attrs " FROM page"))
@@ -41,29 +41,32 @@
      (str (select-from
            (attr-list [page-table category-table]))
           " LEFT JOIN page_category ON page.id = page_category.page_id "
-          "LEFT JOIN category ON page_category.category_id = category.id"))
+          "LEFT JOIN category categories "
+          "ON page_category.category_id = categories.id"))
 
 (def one-to-many-join-query
      (str (select-from
            (attr-list [page-table version-table]))
-          " LEFT JOIN version ON page.id = version.page_id"))
+          " LEFT JOIN version versions ON page.id = versions.page_id"))
 
 (def one-and-many-to-many-join-query
      (str (select-from
            (attr-list [page-table category-table version-table]))
           " LEFT JOIN page_category ON page.id = page_category.page_id "
-          "LEFT JOIN category ON page_category.category_id = category.id "
-          "LEFT JOIN version ON page.id = version.page_id"))
+          "LEFT JOIN category categories "
+          "ON page_category.category_id = categories.id "
+          "LEFT JOIN version versions "
+          "ON page.id = versions.page_id"))
 
 (def fixture-join-flat
      [[{:page_id 7 :page_name "one" :page_current_version 1
-        :category_id nil :category_name nil} 
+        :categories_id nil :categories_name nil} 
        {:page_id 8 :page_name "two" :page_current_version 2
-        :category_id 1 :category_name "Clojure"}
+        :categories_id 1 :categories_name "Clojure"}
        {:page_id 8 :page_name "two" :page_current_version 2
-        :category_id 3 :category_name "SICP"}
+        :categories_id 3 :categories_name "SICP"}
        {:page_id 9 :page_name "three" :page_current_version 3
-        :category_id 1 :category_name "Clojure"}]])
+        :categories_id 1 :categories_name "Clojure"}]])
 
 (def fixture-join-nested
      [{:id 7 :name "one" :current_version 1 :categories []}

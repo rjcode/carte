@@ -8,7 +8,7 @@
 
 (ns carte.test-sql
   (:use (clojure test)
-        (carte core sql fixtures)))
+        (carte core sql model fixtures)))
 
 (deftest test-key-value->where-seq
   (are [a b _ result] (= (key-value->where-seq a b) result)
@@ -80,61 +80,82 @@
        [:artist [:name :asc :id :desc] :album [:title :desc]] :=>
        " ORDER BY artist.name, artist.id DESC, album.title DESC"))
 
-(deftest test-columns-sql
-  (is (= (columns-sql nil :page) ["*"]))
-  (is (= (columns-sql {} :page) ["*"]))
-  (are [model table query joins _ attrs]
-       (= (interpose-str ", "
-                         (columns-sql model table query joins))
-          (attr-list attrs))
+(deftest test-select-attrs-from-joins
+  (t "test select attrs from joins"
+     (t "with single join"
+        (is (= (select-attrs-from-joins
+                (model (artist [:a])
+                       (album [:b]
+                              (many-to-many :artist)))
+                {}
+                {:artist {:table :artist :joins [:albums]}})
+               ["artist.a AS artist_a" "albums.b AS albums_b"])))
+     (t "with nested joins"
+        (is (= (select-attrs-from-joins
+                (model (track [:c]
+                              (belongs-to :album))
+                       (artist [:a]
+                               (many-to-many :album))
+                       (album [:b]))
+                {}
+                {:artist {:table :artist :joins [:albums]}
+                 :albums {:table :album :joins [:tracks]}})
+               ["artist.a AS artist_a"
+                "albums.b AS albums_b"
+                "tracks.c AS tracks_c"])))))
 
-       fixture-model-one-and-many-to-many
-       :page
-       nil
-       [:categories :versions] :=> [page-table
-                                    category-table
-                                    version-table]
-    
-       fixture-model-many-to-many
-       :page
-       {:page [:name]}
-       [:categories]           :=> [[:page [:id :name]]
-                                    category-table]
-
-       fixture-model-many-to-many
-       :page
-       {:page [:name] :category [:name]}
-       [:categories]           :=> [[:page [:id :name]]
-                                    [:category [:id :name]]]
-
-       sample-data-model
-       :album
-       {:album [:title]}
-       [:genre]                :=> [[:album [:id :title]]
-                                    [:genre [:id :name]]]))
+(deftest test-select-attrs
+  (t "test select attrs"
+     (t "with no model or joins"
+        (is (= (select-attrs nil
+                             :artist
+                             {}
+                             {})
+               "*")))
+     (t "with a model and no joins"
+        (is (= (select-attrs (model (artist [:a])
+                                    (album [:b]
+                                           (many-to-many :artist)))
+                             :artist
+                             {}
+                             {})
+               "artist.a AS artist_a")))
+     (t "with a model and no joins"
+        (is (= (select-attrs (model (artist [:a])
+                                    (album [:b]
+                                           (many-to-many :artist)))
+                             :artist
+                             {}
+                             {:artist {:table :artist :joins [:albums]}})
+               "artist.a AS artist_a, albums.b AS albums_b")))))
 
 (deftest test-selects
-  (are [model q _ result] (= (selects model
-                                      :page
-                                      (parse-query model :page q))
-                             result)
+  (are [db q _ result] (= (selects db
+                                   :page
+                                   (parse-query (:model db) :page q))
+                          result)
        
        {} []                          :=> [[(select-from "*")]]
        nil []                         :=> [[(select-from "*")]]
        nil [{:id 1}]                  :=> [[(str (select-from "*")
                                                  " WHERE page.id = ?") 1]]
+       
        nil [{:name "brent*"}]         :=> [[(str (select-from "*")
                                                  " WHERE page.name like ?")
                                             "brent%"]]
+       
        fixture-model-many-to-many
        []                             :=> [[(select-from
                                              (attr-list [page-table]))]]
+       
        fixture-model-many-to-many
        [:with :categories]            :=> [[many-to-many-join-query]]
+       
        fixture-model-many-to-many
        [{:id 1}]                      :=> [[(str (select-from
                                                   (attr-list [page-table]))
                                                  " WHERE page.id = ?") 1]]
+       
        fixture-model-many-to-many
        [{:id 1} :with :categories]    :=> [[(str many-to-many-join-query
                                                  " WHERE page.id = ?") 1]]
@@ -144,19 +165,22 @@
               " WHERE page.id = ?"
               " AND page.name = ?")
          1 "brenton"]]
-       
+
        fixture-model-one-to-many
        [:with :versions]             :=> [[one-to-many-join-query]]
+
        fixture-model-one-and-many-to-many
        [:with :categories :versions] :=> [[one-and-many-to-many-join-query]]
 
        nil
        [:order-by :name] :=>
        [[(str (select-from "*") " ORDER BY page.name")]]
-
-       nil
-       [:order-by :name :with [:version :order-by :id]] :=>
-       [[(str (select-from "*") " ORDER BY page.name, version.id")]]))
+       
+       fixture-model-one-to-many
+       [:order-by :name :with [:versions :order-by :id]] :=>
+       [[(str (select-from (attr-list [page-table version-table]))
+              " LEFT JOIN version versions ON page.id = versions.page_id"
+              " ORDER BY page.name, versions.id")]]))
 
 (deftest test-selects-with-nested-withs
   (are [table q result] (= (selects sample-data-model
@@ -165,15 +189,15 @@
                                                  table q))
                            [[result]])
        
-       :artist [:with [:album :with :tracks]]
+       :artist [:with [:albums :with :tracks]]
        (str "SELECT "
-            (attr-list [[:artist [:id :name]]
-                        [:album [:id :title :release_date]]
-                        [:track [:id :name]]])
+            (attr-list [[:albums [:id :title :release_date]]
+                        [:tracks [:id :name]]
+                        [:artist [:id :name]]])
             " FROM artist"
             " LEFT JOIN album_artist ON artist.id = album_artist.artist_id"
-            " LEFT JOIN album ON album_artist.album_id = album.id"
-            " LEFT JOIN track ON album.id = track.album_id")
+            " LEFT JOIN album albums ON album_artist.album_id = albums.id"
+            " LEFT JOIN track tracks ON albums.id = tracks.album_id")
 
        :album [:with :genre]
        (str "SELECT "

@@ -120,41 +120,61 @@
 ;; Queries
 ;;
 
-(defn parse-query-part [table q]
+(defn parse-query-part [table alias q]
   (loop [q q
          result {}]
     (if (seq q)
       (let [next (first q)]
         (recur (rest q)
-               (cond (vector? next) (merge result {:attrs {table next}})
+               (cond (vector? next) (merge result {:attrs {alias next}})
                      (map? next)
                      (deep-merge-with concat
                                       result
-                                      {:criteria {table [next]}})
+                                      {:criteria {alias [next]}})
                      :else result)))
       result)))
 
 (declare parse-query)
 
-(defn parse-join-part [model table q]
+(defn parse-join-merge [one two]
+  (cond (coll? one)
+        (concat one two)
+        :else two))
+
+(defn parse-join-part
+  "Given a model, root-table and a query, produce the joins portion of the
+   query data structure. The first item in the query is always :with.
+   For the root table :artist, [:with [:albums :with :tracks]] becomes
+   {:joins {:artist {:table :artist :joins [:albums]}
+            :albums {:table :album :joins [:tracks]}}}
+   Each entry in the joins map is an alias for a table. Using the alias as the
+   key allows us to join on the same table more than once.
+   For the root table :bol, [:with [:origin :with :region]
+                                   [:dest :with :region]] becomes
+   {:joins {:bol {:table :bol :joins [:origin :dest]}
+            :origin {:table :site :joins [:region]}
+            :dest {:table :site :joins [:region]}}}"
+  [model table alias q]
   (loop [result {}
          joins (rest q)]
     (if (seq joins)
       (let [next (first joins)]
         (recur (if (keyword? next)
-                 (deep-merge-with concat
+                 (deep-merge-with parse-join-merge
                                   result
-                                  {:joins {table [next]}})
-                 (let [join-rel (first next)
+                                  {:joins {alias {:table table :joins [next]}}})
+                 (let [join-alias (first next)
                        join-model (find-join-by model
                                                 table
-                                                :table
-                                                join-rel)]
-                   (deep-merge-with concat
+                                                :alias
+                                                join-alias)]
+                   (deep-merge-with parse-join-merge
                                     result
-                                    {:joins {table [(:alias join-model)]}}
+                                    {:joins {alias {:table table
+                                                    :joins [join-alias]}}}
                                     (parse-query model
-                                                 join-rel
+                                                 (:table join-model)
+                                                 join-alias
                                                  (rest next)))))
                (rest joins)))
       result)))
@@ -164,7 +184,7 @@
     [(first v1) (concat (last v1) (last v2))]
     (concat v1 v2)))
 
-(defn parse-order-by-part [table query]
+(defn parse-order-by-part [alias query]
   (loop [result {}
          query (rest query)]
     (if (seq query)
@@ -172,7 +192,7 @@
         (recur (deep-merge-with merge-order-vecs
                                 result
                                 {:order-by
-                                 [table (if (keyword? next)
+                                 [alias (if (keyword? next)
                                           [next :asc]
                                           (let [[col dir] next]
                                             [col dir]))]})
@@ -199,16 +219,19 @@
 
 (defn parse-query
   "Create a map with keys :attrs :criteria :joins :order-by :limit and :page"
-  [model table q]
-  (let [[q limit-or-page] (split-with #(not (contains? #{:limit :page} %)) q)
-        [query-part join-part] (split-with #(not (= % :with)) q)
-        [query-part order-part] (split-with #(not (= % :order-by)) query-part)]
-    (deep-merge-with concat
-                     (parse-query-part table query-part)
-                     (parse-order-by-part table order-part)
-                     (parse-join-part model table join-part)
-                     (parse-limit-part limit-or-page)
-                     (parse-page-part limit-or-page))))
+  ([model table q]
+     (parse-query model table table q))
+  ([model table alias q]
+     {:pre [(not (nil? table)), (not (nil? alias))]}
+     (let [[q limit-or-page] (split-with #(not (contains? #{:limit :page} %)) q)
+           [query-part join-part] (split-with #(not (= % :with)) q)
+           [query-part order-part] (split-with #(not (= % :order-by)) query-part)]
+       (deep-merge-with concat
+                        (parse-query-part table alias query-part)
+                        (parse-order-by-part alias order-part)
+                        (parse-join-part model table alias join-part)
+                        (parse-limit-part limit-or-page)
+                        (parse-page-part limit-or-page)))))
 
 (defn compile-query
   "Transform a sequence of query parameters into a query map."
@@ -227,12 +250,19 @@
        (not (some true? (map #(and (not (.equals qualified %))
                                    (.startsWith qualified %)) other)))))
 
+(defn tables-and-aliases
+  "Get a list of all table names and aliases that are used in the model."
+  [model]
+  (concat (keys model)
+          (distinct
+           (flatten (map #(map :alias %) (map :joins (vals model)))))))
+
 (defn dequalify-joined-map
   "Create a map that has dequalified key names for this table. The input
-   map will have the table name appended to the front of each key."
-  [model table m]
-  (let [prefix (name table)
-        other-tables (->> (map name (keys model))
+   map will have the alias name appended to the front of each key."
+  [model table alias m]
+  (let [prefix (name alias)
+        other-tables (->> (map name (tables-and-aliases model))
                              (filter #(> (count %) (count prefix))))]
     (reduce (fn [a b]
               (let [k (name (key b))]
@@ -293,13 +323,14 @@
   (let [{type :type assoc-table :table alias :alias} join-model
         assoc-rec (single-record-flat->nested model
                                               assoc-table
+                                              alias
                                               joins
                                               flat-rec)]
     (assoc nested-rec alias (associated-record type assoc-rec))))
 
-(defn single-record-flat->nested [model table joins flat-rec]
-  (loop [nested-rec (dequalify-joined-map model table flat-rec)
-         associations (table joins)]
+(defn single-record-flat->nested [model table alias joins flat-rec]
+  (loop [nested-rec (dequalify-joined-map model table alias flat-rec)
+         associations (-> joins alias :joins)]
     (if (seq associations)
       (recur (add-association model
                               joins
@@ -359,7 +390,7 @@
     (add-original-meta
      (merge-nested
       (vec
-       (map #(single-record-flat->nested model table joins %)
+       (map #(single-record-flat->nested model table table joins %)
             (first records-seq)))))))
 
 (defn execute-query-plan [db query]

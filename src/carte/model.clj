@@ -13,9 +13,9 @@
 (defn merge-join-sets [existing-set new-set]
   (let [new-join (first new-set)
         type (:type new-join)
-        table (:table new-join)]
+        alias (:alias new-join)]
     (set (concat (filter #(not (and (= (:type %) type)
-                                    (= (:table %) table))) existing-set)
+                                    (= (:alias %) alias))) existing-set)
                  new-set))))
 
 (defn association-merge [& body]
