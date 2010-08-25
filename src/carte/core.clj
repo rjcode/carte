@@ -241,11 +241,11 @@
 (defn- m-dissoc [m & keys]
   (apply dissoc (into {} m) keys))
 
-(defn keyword-without-prefix [prefix s]
+(defn keyword-without-prefix [prefix ^String s]
   (keyword
    (.substring s (+ 1 (count prefix)))))
 
-(defn prefixed? [qualified prefix other]
+(defn prefixed? [^String qualified prefix other]
   (and (.startsWith qualified prefix)
        (not (some true? (map #(and (not (.equals qualified %))
                                    (.startsWith qualified %)) other)))))

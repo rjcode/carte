@@ -8,4 +8,5 @@
                      [mysql/mysql-connector-java "5.1.6"]
                      [lein-difftest "1.3.0"]
                      [deview/lein-deview "1.2.0-SNAPSHOT"]]
+  :hooks [leiningen.hooks.difftest]
   :deview-server 9002)

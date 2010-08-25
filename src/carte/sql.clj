@@ -18,7 +18,15 @@
 
 (def *debug* false)
 
-(defmulti to-string type)
+(defmulti ^String to-string type)
+
+(defmethod ^String to-string clojure.lang.Keyword
+  [x]
+  (name x))
+
+(defmethod ^String to-string :default
+  [^Object x]
+  (.toString x))
 
 (defn filter-values [rec filter-fn]
   (let [keys (keys rec)
@@ -27,7 +35,7 @@
 
 (defn- wildcard-string?
   "Does this string start with or end with wildcards."
-  [s]
+  [^String s]
   (or (. (to-string s) endsWith "*")
       (. (to-string s) startsWith "*")))
 
@@ -56,7 +64,7 @@
            (time/to-time-zone (coerce/from-date field)
                               (time/default-time-zone)))
 
-(defmethod coerce-in java.sql.Timestamp [field]
+(defmethod coerce-in java.sql.Timestamp [^java.sql.Timestamp field]
            (time/to-time-zone (coerce/from-long (.getTime field))
                               (time/default-time-zone)))
 
@@ -69,14 +77,6 @@
   "Filter values as they come out of the database."
   [rec]
   (filter-values rec coerce-in))
-
-(defmethod to-string clojure.lang.Keyword
-  [x]
-  (name x))
-
-(defmethod to-string :default
-  [x]
-  (.toString x))
 
 (defn with-transaction
   "Execute a no argument function within a transaction."
@@ -156,7 +156,7 @@
 (defn- create-column-name-pattern-from-sql
   "Given any sql where string, generate a pattern that will match all of the
    column names in the string."
-  [s]
+  [^String s]
   (let [re #"\W|and|is|not|null|or|like|\d"]
     (re-pattern
      (interpose-str "|"
