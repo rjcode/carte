@@ -568,6 +568,13 @@ backends."
                             (str "bigint(" (get-spec spec :size 20) ")")
                             spec))
 
+(defmethod col :decimal [col-name type & spec]
+           (let [m (max 1 (min 65 (get-spec spec :left 65)))
+                 d (max 0 (min 30 (get-spec spec :right 30)))]
+             (column-template col-name
+                              (str "decimal(" m ", " d ")")
+                              spec)))
+
 (defmethod col :char [col-name type & spec]
            (column-template col-name "char(1)" spec))
 

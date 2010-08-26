@@ -3,6 +3,10 @@
 pom.xml
 .DS_Store
 
+# ignore project stuff
+*.iml
+.idea
+
 # ignore output
 out/
 classes/

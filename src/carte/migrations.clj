@@ -121,8 +121,6 @@
          result)
        (catch Exception _ nil)))))
 
-
-
 (defn migrate
   "Get the current version of the database and then find and run all
    migrations after that version. Only run migrations until you either run
