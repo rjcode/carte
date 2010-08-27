@@ -206,3 +206,9 @@
             " FROM album"
             " LEFT JOIN genre ON album.genre_id = genre.id")))
 
+(deftest test-unique-key
+  (is (= (unique-key :name)
+         "UNIQUE KEY name (name)"))
+  (is (= (unique-key :name :age)
+         "UNIQUE KEY name_age (name, age)")))
+

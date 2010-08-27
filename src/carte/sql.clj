@@ -597,9 +597,11 @@ backends."
             "CONSTRAINT " foreign-key " FOREIGN KEY (" this-name ") "
             "REFERENCES " (name table) " (" (name that-col) ")"))))
 
-(defn unique-key [col-name]
-  (let [n (name col-name)]
-    (str "UNIQUE KEY " n "(" n ")")))
+(defn unique-key [& col-names]
+  (let [names (map name col-names)
+        key-name (apply str (interpose "_" names))
+        field-list (apply str (interpose ", " names))]
+    (str "UNIQUE KEY " key-name " (" field-list ")")))
 
 (defn create-key-value-table [create-table-fn]
   (create-table-fn
