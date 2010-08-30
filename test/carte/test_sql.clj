@@ -191,8 +191,9 @@
        
        :artist [:with [:albums :with :tracks]]
        (str "SELECT "
-            (attr-list [[:albums [:id :title :release_date]]
-                        [:tracks [:id :name]]
+            (attr-list [[:albums [:id :title :genre_id :release_date
+                                  :lead_vocals_id]]
+                        [:tracks [:id :name :album_id]]
                         [:artist [:id :name]]])
             " FROM artist"
             " LEFT JOIN album_artist ON artist.id = album_artist.artist_id"
@@ -201,7 +202,8 @@
 
        :album [:with :genre]
        (str "SELECT "
-            (attr-list [[:album [:id :title :release_date]]
+            (attr-list [[:album [:id :title :genre_id :release_date
+                                  :lead_vocals_id]]
                         [:genre [:id :name]]])
             " FROM album"
             " LEFT JOIN genre ON album.genre_id = genre.id")))

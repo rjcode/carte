@@ -95,7 +95,7 @@
                         :page {:attrs [:id :name :current_version]
                                :joins #{fixture-join-category
                                         fixture-join-version}}}})))
-     (t "using the relation macro"
+     (t "using the model macro"
         (are [x] (= x fixture-artist-album-model)
              
              (model
@@ -142,13 +142,6 @@
              
              (model (page [:name]
                           (one-to-many :version)))))))
-
-(:model (model (region [:name])
-                         (site [:name]
-                               (many-to-one :region))
-                         (bol [:name]
-                              (many-to-one origin :site :origin_id)
-                              (many-to-one dest :site :dest_id))))
 
 (deftest test-various-models
   (t "test model"

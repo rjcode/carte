@@ -12,6 +12,7 @@
   (:use (carte model)
         (clojure.contrib [str-utils :only (re-gsub re-split)]))
   (:require (clojure.contrib [sql :as sql])
+            (clojure [string :as string])
             (clj-time [core :as time]
                       [coerce :as coerce])))
 
@@ -145,6 +146,61 @@
                 (conj results (into [] (map filter-out-of-db res)))))
             []
             selects)))
+
+(defmulti schema-value (fn [k _] k))
+
+(defmethod schema-value :default [k value]
+           value)
+
+(defmethod schema-value :nullable? [k value]
+           (case value
+                 "YES" true
+                 false))
+
+(defmethod schema-value :key [k value]
+           (case value
+                 "PRI" :primary
+                 "MUL" :multiple
+                 :other))
+
+(defmethod schema-value :table [k value]
+           (keyword value))
+
+(defmethod schema-value :column [k value]
+           (keyword value))
+
+(defmethod schema-value :type [k value]
+           (case value
+                 "bigint" :bigint
+                 "varchar" :string
+                 :other))
+
+(defn schema-information [db]
+  (let [db-name (last (string/split (-> db :connection :subname) #"/"))
+        query (str "select * from information_schema.columns "
+                   "where table_schema=?")]
+    (map #(reduce (fn [a b]
+                    (if-let [new-key (case (key b)
+                                           :table_name :table
+                                           :column_name :column
+                                           :ordinal_position :position
+                                           :column_default :default
+                                           :is_nullable :nullable?
+                                           :data_type :type
+                                           :character_maximum_length :length
+                                           :column_key :key
+                                           nil)]
+                      (let [new-val (schema-value new-key (val b))]
+                        (assoc a new-key new-val))
+                      a))
+                  {}
+                  %)
+         (sql-query db [query db-name]))))
+
+(defn columns-in-order [db table]
+  (sort-by :position
+           (filter #(= (:table %) table)
+                   (schema-information db))))
 
 ;;
 ;; SQL Generation

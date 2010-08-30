@@ -912,4 +912,56 @@
            result (delete-record sample-db album)]
        (is (= (count ($ :track)) (- all-tracks mp-tracks)))))))
 
+(deftest test-model-without-attrs
+  (if *hit-database*
+    (with-test-database default-test-data
+
+      (is (= (model (genre [:id :name]))
+             {:model {:genre {:attrs [:id :name]}}}))
+      (is (= (model (genre))
+             {:model {:genre {:attrs []}}}))
+      (is (= (merge-with-attrs db (model (genre)))
+             (merge db {:model {:genre {:attrs [:id :name]}}})))
+      (is (= (merge-with-attrs db (model (genre [:id :name])))
+             (merge db {:model {:genre {:attrs [:id :name]}}})))
+      (is (= (merge-with-attrs db (model (genre [:id :name])
+                                         (album)))
+             (merge db {:model {:genre {:attrs [:id :name]}
+                                :album {:attrs [:id :title :genre_id
+                                                :release_date
+                                                :lead_vocals_id]}}})))
+      (is (= (merge-with-attrs db (model (genre)
+                                         (album [:id :title])))
+             (merge db {:model {:genre {:attrs [:id :name]}
+                                :album {:attrs [:id :title]}}})))
+      (is (= (merge-with-attrs db (model (genre)
+                                         (album (many-to-many :artist))))
+             (merge
+              db
+              {:model {:album {:joins #{{:type :many-to-many
+                                         :table :artist
+                                         :alias :artists
+                                         :link :album_artist
+                                         :from :album_id
+                                         :to :artist_id}}
+                               :attrs [:id :title :genre_id :release_date
+                                       :lead_vocals_id]}
+                       :artist {:joins #{{:type :many-to-many
+                                          :table :album
+                                          :alias :albums
+                                          :link :album_artist
+                                          :from :artist_id
+                                          :to :album_id}}
+                                :attrs [:id :name]}
+                       :genre {:attrs [:id :name]}}})))
+      (t "the most concise syntax is equal to the verbose syntax in fixtures"
+         (is (= (merge-with-attrs
+                  db
+                  (model
+                   (track (belongs-to :album))
+                   (album (many-to-many :artist)
+                          (many-to-one :genre)
+                          (many-to-one lead_vocals :artist :lead_vocals_id))))
+                sample-db))))))
+
 

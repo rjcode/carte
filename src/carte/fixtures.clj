@@ -154,9 +154,9 @@
 (def sample-data-model
      (model
       (genre [:id :name])
-      (track [:id :name]
+      (track [:id :name :album_id]
              (belongs-to :album))
-      (album [:id :title :release_date]
+      (album [:id :title :genre_id :release_date :lead_vocals_id]
              (many-to-many :artist)
              (many-to-one :genre)
              (many-to-one lead_vocals :artist :lead_vocals_id))

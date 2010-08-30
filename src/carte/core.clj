@@ -615,3 +615,22 @@
 
 (defn carte-date-time [& args]
   (from-time-zone (apply date-time args) (default-time-zone)))
+
+(defn merge-with-attrs [db model]
+  (let [m (:model model)
+        t-without-attrs (reduce (fn [a b]
+                                  (let [table (key b)
+                                        attrs (-> (val b) :attrs)]
+                                    (if (empty? attrs)
+                                      (conj a table)
+                                      a)))
+                                []
+                                m)
+        attrs (reduce (fn [a b]
+                        (merge a {b {:attrs (vec
+                                             (map :column
+                                                  (columns-in-order db b)))}}))
+                      {}
+                      t-without-attrs)]
+    (merge db
+           (deep-merge-with (fn [a b] b) model {:model attrs}))))

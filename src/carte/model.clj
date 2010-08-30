@@ -171,10 +171,12 @@
 
 (defmacro table [table & args]
   (let [table (keyword table)
-        new-args (map (fn [v]
-                        (vec (map keyword v)))
-                      args)]
-    `(table* ~table ~@new-args)))
+        f (first args)
+        [attrs associations] (if (vector? f) [f (rest args)] [[] args])
+        associations (map (fn [v]
+                            (vec (map keyword v)))
+                          associations)]
+    `(table* ~table ~attrs ~@associations)))
 
 (defn model* [& body]
   {:model (apply deep-merge-with association-merge body)})
@@ -185,7 +187,7 @@
 
 (defn find-join-by
   "Find the map in a given model that describes the join between
-   base-table and join which has value for key."
+   'base-table' and 'join' which has 'value' for key."
   [model base-table key value]
   (first
    (filter #(= (key %) value)
