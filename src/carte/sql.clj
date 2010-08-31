@@ -643,15 +643,30 @@ backends."
 (defmethod col :text [col-name type & spec]
            (column-template col-name "text" spec))
 
+(defn- foreign-key [col]
+  (str "FK_" col "_key"))
+
 (defn constraint
   ([this-col _ table that-col]
      (constraint this-col table that-col))
   ([this-col table that-col]
      (let [this-name (name this-col)
-           foreign-key (str "FK_" this-name "_key")]
+           foreign-key (foreign-key this-name)]
        (str "KEY " foreign-key " (" this-name "),"
             "CONSTRAINT " foreign-key " FOREIGN KEY (" this-name ") "
             "REFERENCES " (name table) " (" (name that-col) ")"))))
+
+(defn add-constraint
+  ([this-col _ table that-col]
+     (add-constraint this-col table that-col))
+  ([this-col table that-col]
+     (let [this-name (name this-col)
+           foreign-key (foreign-key this-name)]
+       (str " ADD CONSTRAINT " foreign-key " FOREIGN KEY (" this-name ") "
+            "REFERENCES " (name table) " (" (name that-col) ")"))))
+
+(defn drop-constraint [col]
+  (str " DROP FOREIGN KEY " (foreign-key (name col))))
 
 (defn unique-key [& col-names]
   (let [names (map name col-names)
