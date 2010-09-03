@@ -963,5 +963,3 @@
                           (many-to-one :genre)
                           (many-to-one lead_vocals :artist :lead_vocals_id))))
                 sample-db))))))
-
-

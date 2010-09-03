@@ -46,6 +46,11 @@
   (cond (wildcard-string? s) (re-gsub #"[*]" "%" s)
         :else s))
 
+#_(defmacro where [w]
+  (let [op (first w)
+        args (rest w)]
+    `(hash-map :where "")))
+
 (defmulti coerce-out class)
 
 (defmethod coerce-out :default [field] field)
@@ -682,4 +687,3 @@ backends."
         value varchar(255) not null,
         primary key (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8;"))
-

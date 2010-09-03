@@ -214,3 +214,21 @@
   (is (= (unique-key :name :age)
          "UNIQUE KEY name_age (name, age)")))
 
+;; Experimental where syntax
+
+#_(deftest test-where
+  (let [x 10]
+    (is (= (where (> :age 20))
+           {:where ["age > ?" 20]}))
+    #_(is (= (where (> :age x))
+           {:where ["age > ?" x]}))
+    #_(is (= (where (or (-> :title (like "Mag*") (like "Th*"))))
+           {:where ["title like ? or title like ?" "Mag%" "Th%"]}))
+    #_(is (= (where (< :release_date (carte-date-time 2006)))
+           {:where ["release_date < ?" (carte-date-time 2006)]}))
+    #_(is (= (where (and (-> :release_date
+                           (> (carte-date-time 2006 1 1))
+                           (< (carte-date-time 2007 1 1)))))
+           {:where ["release_date > ? and release_date < ?"
+                    (carte-date-time 2006 1 1)
+                    (carte-date-time 2007 1 1)]}))))
