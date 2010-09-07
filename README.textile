@@ -14,6 +14,8 @@ Every disclaimer goes here...
 
 This document walks through some examples, showing the current functionality of Carte. If you would like to follow along with the examples then you will need to have MySQL, Git and "Leiningen":http://github.com/technomancy/leiningen installed.
 
+NOTE: The examples below worked with version 0.1.1 of Carte. They do not work very well with the current version. I will update this documentation when I release version 0.2.0 as well as create a stable branch where the README will always be accurate.
+
 h3. Table of Contents
 
 * <a href="#leiningen">Leiningen Usage</a>
